@@ -68,6 +68,7 @@
     const mainTabs = document.querySelectorAll('.main-tab');
     const viewChain = document.getElementById('view-chain');
     const viewEnhancer = document.getElementById('view-enhancer');
+    const viewSub = document.getElementById('view-sub');
 
     // Enhancer elements
     const enhancerInput = document.getElementById('enhancer-input');
@@ -644,7 +645,7 @@
 
     // ===== URL Enhancer (Fragment + Fingerprint) =====
 
-    function enhanceURL(raw) {
+    function enhanceURL(raw, opts) {
         const url = raw.trim();
         if (!url) return { error: 'No URL provided' };
         if (!url.startsWith('vless://') && !url.startsWith('trojan://')) {
@@ -661,8 +662,10 @@
         const params = u.searchParams;
         const security = params.get('security') || 'none';
 
-        // Server override — auto-filled from URL, user-editable, empty keeps original
-        const server = enhancerServer.value.trim();
+        // Server override — auto-filled from URL, user-editable, empty keeps original.
+        // opts.ignoreServer skips it: a subscription holds many servers, so rewriting
+        // every entry to one address would break the whole list.
+        const server = (opts && opts.ignoreServer) ? '' : enhancerServer.value.trim();
         if (server) {
             const host = server.includes(':') && !server.startsWith('[')
                 ? '[' + server + ']'
@@ -2004,13 +2007,430 @@
         URL.revokeObjectURL(url);
     }
 
+    // ===== Subscription Import =====
+
+    const subUrl = document.getElementById('sub-url');
+    const subProxy = document.getElementById('sub-proxy');
+    const subClear = document.getElementById('sub-clear');
+    const subParsed = document.getElementById('sub-parsed');
+    const subProtocolTag = document.getElementById('sub-protocol-tag');
+    const subCard = document.getElementById('sub-card');
+    const btnSub = document.getElementById('btn-sub');
+    const subHint = document.getElementById('sub-hint');
+    const subOutputSection = document.getElementById('sub-output-section');
+    const subOutputUrl = document.getElementById('sub-output-url');
+    const subOutputRemark = document.getElementById('sub-output-remark');
+    const btnCopySub = document.getElementById('btn-copy-sub');
+    const btnDownloadSub = document.getElementById('btn-download-sub');
+    const btnDownloadSubB64 = document.getElementById('btn-download-sub-b64');
+
+    // Direct fetch is always tried first; the selected CORS proxy is only a
+    // fallback for providers that send no CORS headers. Several of these
+    // services are flaky or key-walled — see the note under the tab.
+    const CORS_PROXIES = [
+        { id: 'direct', name: 'Direct only (no proxy)', wrap: null },
+        { id: 'allorigins', name: 'allorigins.win', wrap: u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u) },
+        { id: 'codetabs', name: 'codetabs.com', wrap: u => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u) },
+        { id: 'corsproxy', name: 'corsproxy.io (needs API key)', wrap: u => 'https://corsproxy.io/?url=' + encodeURIComponent(u) },
+        { id: 'cors-anywhere', name: 'cors-anywhere', wrap: u => 'https://cors-anywhere.herokuapp.com/' + u },
+        { id: 'thingproxy', name: 'thingproxy', wrap: u => 'https://thingproxy.freeboard.io/fetch/' + u }
+    ];
+
+    // Bodies can be several hundred KB and arrive slowly, so we abort on
+    // silence rather than after a fixed total time.
+    const SUB_IDLE_MS = 30000;
+
+    let subResults = [];
+    let subRawConfigs = [];
+    let subMode = 'link';
+    let subBusy = false;
+    let subRenderTimer = null;
+
+    // Returns every proxy line found in a subscription body, whether it arrives
+    // as plain text or as one base64 blob.
+    function extractSubConfigs(body) {
+        let text = (body || '').trim();
+        if (!text) return [];
+
+        // Plain text list — nothing to decode.
+        if (extractLines(text).some(l => /^vless:\/\/|^vmess:\/\/|^trojan:\/\/|^ss:\/\/|^socks5?:\/\//i.test(l))) {
+            return extractLines(text);
+        }
+
+        // Base64 body: try the whole payload first (standard subscription format),
+        // then line by line for providers that send a base64 blob per config.
+        const whole = safeAtob(text.replace(/\s+/g, ''));
+        if (whole) {
+            const lines = extractLines(whole);
+            if (lines.some(l => /^vless:\/\/|^vmess:\/\/|^trojan:\/\/|^ss:\/\/|^socks5?:\/\//i.test(l))) {
+                return lines;
+            }
+        }
+
+        // Last resort: some providers base64 each config on its own line. Only
+        // decoded lines that actually hold a proxy scheme count — otherwise any
+        // base64-looking word (an HTML file, a comment) becomes a "config".
+        return extractLines(text)
+            .map(l => safeAtob(l.replace(/^\/\/.*$/, '').trim()))
+            .filter(Boolean)
+            .flatMap(extractLines)
+            .filter(l => /^(vless|vmess|trojan|ss|socks5?|tg):\/\//i.test(l));
+    }
+
+    // Streams the response so a large body can arrive over a slow link without
+    // hitting a fixed timeout; the connection is only aborted after SUB_IDLE_MS
+    // of silence. onProgress(receivedBytes, totalBytes) drives the status line.
+    async function fetchTextWithProgress(url, onProgress) {
+        const ctrl = new AbortController();
+        let timer = setTimeout(() => ctrl.abort(), SUB_IDLE_MS);
+        const kick = () => {
+            clearTimeout(timer);
+            timer = setTimeout(() => ctrl.abort(), SUB_IDLE_MS);
+        };
+        try {
+            const res = await fetch(url, { signal: ctrl.signal, redirect: 'follow' });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const total = parseInt(res.headers.get('content-length') || '0', 10);
+
+            // No streaming support — fall back to buffering the whole body.
+            if (!res.body || typeof res.body.getReader !== 'function') {
+                const text = await res.text();
+                onProgress(text.length, total);
+                return text;
+            }
+
+            const reader = res.body.getReader();
+            const parts = [];
+            let loaded = 0;
+            for (;;) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                kick();
+                parts.push(value);
+                loaded += value.length;
+                onProgress(loaded, total);
+            }
+
+            const buf = new Uint8Array(loaded);
+            let offset = 0;
+            for (const part of parts) {
+                buf.set(part, offset);
+                offset += part.length;
+            }
+            return new TextDecoder('utf-8').decode(buf);
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    async function fetchSubBody(url, onProgress) {
+        try {
+            return await fetchTextWithProgress(url, onProgress);
+        } catch (directError) {
+            const proxy = CORS_PROXIES.find(p => p.id === subProxy.value);
+            if (!proxy || !proxy.wrap) throw directError;
+            return await fetchTextWithProgress(proxy.wrap(url), onProgress);
+        }
+    }
+
+    function setSubError(text) {
+        subParsed.textContent = '';
+        const err = document.createElement('div');
+        err.className = 'error-msg';
+        err.textContent = '⚠️ ' + text;
+        subParsed.appendChild(err);
+    }
+
+    function subErrorText(e) {
+        const msg = (e && e.message) || String(e);
+        if (e && e.name === 'AbortError') {
+            return 'The connection went silent for ' + Math.round(SUB_IDLE_MS / 1000) +
+                's — the provider is throttling or unreachable. Retry, or paste the subscription contents into this box.';
+        }
+        if (/^HTTP \d+$/.test(msg)) return 'The server replied ' + msg + '.';
+        return 'Blocked by CORS or the network (' + msg + '). Pick another CORS proxy above, or open the link in a new tab and paste its contents into this box.';
+    }
+
+    // One http(s) line = a link to fetch. Anything else that looks like a
+    // subscription body is enhanced straight away, with no fetch at all — the
+    // escape hatch for providers that block browser/CORS access.
+    function subIsLink(v) {
+        return !/\s/.test(v) && /^https?:\/\/\S+$/i.test(v);
+    }
+
+    function subLooksLikeContent(v) {
+        const firstLine = extractLines(v)[0] || '';
+        return /^(vless|vmess|trojan|ss|socks5?|tg):\/\//i.test(firstLine) ||
+            /^[A-Za-z0-9+/=_-]{400,}$/.test(v.replace(/\s+/g, ''));
+    }
+
+    function subShowInfo(label, value) {
+        subParsed.textContent = '';
+        const row = document.createElement('div');
+        row.className = 'info-row';
+        const key = document.createElement('span');
+        key.className = 'info-label';
+        key.textContent = label;
+        const val = document.createElement('span');
+        val.className = 'info-value';
+        val.textContent = value;
+        row.append(key, val);
+        subParsed.appendChild(row);
+    }
+
+    function onSubInput() {
+        const raw = subUrl.value.trim();
+        subCard.classList.remove('valid', 'invalid');
+        subProtocolTag.classList.remove('active');
+        subProtocolTag.textContent = '—';
+        subRawConfigs = [];
+
+        if (!raw) {
+            subParsed.textContent = '';
+            btnSub.disabled = true;
+            subHint.textContent = 'Paste a subscription link — or its contents — to enable';
+            subHint.style.color = '';
+            subOutputSection.style.display = 'none';
+            subResults = [];
+            return;
+        }
+
+        if (subIsLink(raw)) {
+            subMode = 'link';
+            let u = null;
+            try {
+                u = new URL(raw);
+            } catch (e) {
+                u = null;
+            }
+            if (!u || !u.hostname) {
+                setSubError('Invalid URL. It must start with http:// or https://');
+                btnSub.disabled = true;
+                subHint.textContent = 'Paste a valid link above to enable';
+                subHint.style.color = '';
+                return;
+            }
+            subCard.classList.add('valid');
+            subProtocolTag.textContent = u.protocol.replace(':', '').toUpperCase() || 'HTTP';
+            subProtocolTag.classList.add('active');
+            subShowInfo('Host', u.hostname);
+            btnSub.disabled = false;
+            subHint.textContent = 'Ready to fetch and enhance';
+            subHint.style.color = '#4cdf86';
+            return;
+        }
+
+        if (subLooksLikeContent(raw)) {
+            subMode = 'content';
+            subCard.classList.add('valid');
+            subProtocolTag.textContent = 'CONTENT';
+            subProtocolTag.classList.add('active');
+            subShowInfo('Mode', 'Pasted content — nothing will be fetched');
+            btnSub.disabled = false;
+            subHint.textContent = 'Ready to enhance pasted content';
+            subHint.style.color = '#4cdf86';
+            return;
+        }
+
+        setSubError('Invalid input. Paste a link starting with http:// or https://, or paste the subscription contents.');
+        btnSub.disabled = true;
+        subHint.textContent = 'Paste a valid link above to enable';
+        subHint.style.color = '';
+    }
+
+    // Single render path for both modes: enhance the parsed configs, show counts,
+    // and hand the same text to the copy / .txt / base64 .txt actions.
+    function renderSubResults(configs) {
+        let enhanced = [];
+        let skipped = 0;
+        let invalid = 0;
+        configs.forEach(line => {
+            const p = parseProxyURLSingle(line);
+            if (!p || p.error) {
+                invalid++;
+                return;
+            }
+            if (p.protocol !== 'vless' && p.protocol !== 'trojan') {
+                skipped++;
+                return;
+            }
+            const res = enhanceURL(line, { ignoreServer: true });
+            if (res && res.url) {
+                enhanced.push(res.url);
+            } else {
+                skipped++;
+            }
+        });
+
+        if (enhanced.length === 0) {
+            subOutputSection.style.display = 'none';
+            subResults = [];
+            subHint.textContent = configs.length
+                ? 'Found configs, but none were VLESS/Trojan with a usable URL'
+                : 'No proxy configs found in the input';
+            subHint.style.color = '#f0c040';
+            subCard.classList.remove('valid');
+            subCard.classList.add('invalid');
+            setSubError(configs.length
+                ? configs.length + ' config(s) found, but none could be enhanced — only VLESS and Trojan URLs are supported.'
+                : 'No recognizable VLESS/VMess/Trojan/SS/SOCKS configs in the input. Open the link in a new tab and paste its contents here.');
+            return;
+        }
+
+        subResults = enhanced;
+
+        const parts = ['✨ ' + enhanced.length + ' enhanced config(s)'];
+        if (skipped) parts.push('skipped ' + skipped + ' non-VLESS/Trojan');
+        if (invalid) parts.push('ignored ' + invalid + ' unparseable line(s)');
+        subOutputRemark.textContent = parts.join(' · ');
+        subOutputUrl.textContent = enhanced.join('\n');
+        subOutputSection.style.display = 'block';
+        subOutputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        subHint.textContent = 'Done';
+        subHint.style.color = '#4cdf86';
+    }
+
+    // Options live in this tab (shared node with the Enhancer tab), so changing
+    // fp / cs / fm re-enhances the configs fetched earlier instead of leaving a
+    // stale output on screen.
+    function scheduleSubRender() {
+        if (subBusy || !subRawConfigs.length) return;
+        clearTimeout(subRenderTimer);
+        subRenderTimer = setTimeout(() => {
+            subRenderTimer = null;
+            if (subBusy || !subRawConfigs.length) return;
+            renderSubResults(subRawConfigs);
+        }, 300);
+    }
+
+    function onSubFetched(body) {
+        if (!subBusy) return;
+        subBusy = false;
+        // A queued progress tick must not overwrite the final status.
+        if (subRenderTimer) {
+            clearTimeout(subRenderTimer);
+            subRenderTimer = null;
+        }
+        // Re-enable for retry (unless the field was edited/cleared mid-fetch).
+        btnSub.disabled = !subUrl.value.trim();
+        // The Enhancer tab auto-fills its server field from the last pasted URL —
+        // that is a single-server value and must not leak into bulk results.
+        lastAutoServer = '';
+        const configs = extractSubConfigs(body);
+        subRawConfigs = configs;
+        renderSubResults(configs);
+    }
+
+    function onSubProgress(loaded, total) {
+        if (subRenderTimer) return;
+        subRenderTimer = setTimeout(() => {
+            subRenderTimer = null;
+            if (!subBusy) return;
+            const kb = Math.round(loaded / 1024);
+            subHint.textContent = total
+                ? 'Fetching… ' + kb + ' / ' + Math.round(total / 1024) + ' KB'
+                : 'Fetching… ' + kb + ' KB';
+        }, 150);
+    }
+
+    async function onSub() {
+        const raw = subUrl.value.trim();
+        if (!raw || subBusy) return;
+
+        // Pasted content: no fetch at all.
+        if (subMode === 'content') {
+            subRawConfigs = extractSubConfigs(raw);
+            renderSubResults(subRawConfigs);
+            return;
+        }
+
+        subBusy = true;
+        btnSub.disabled = true;
+        subHint.textContent = 'Fetching…';
+        subHint.style.color = '';
+
+        try {
+            const body = await fetchSubBody(raw, onSubProgress);
+            onSubFetched(body);
+        } catch (e) {
+            subBusy = false;
+            btnSub.disabled = false;
+            subHint.textContent = 'Fetch failed';
+            subHint.style.color = '#f05050';
+            subCard.classList.remove('valid');
+            subCard.classList.add('invalid');
+            setSubError(subErrorText(e));
+        }
+    }
+
+    function downloadText(name, text, mime) {
+        const blob = new Blob([text], { type: mime || 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    function onCopySub(btn, text) {
+        if (!text) return;
+        navigator.clipboard.writeText(text).then(() => {
+            btn.classList.add('copied');
+            btn.innerHTML = '<span class="copy-icon">✅</span> Copied!';
+            setTimeout(() => {
+                btn.classList.remove('copied');
+                btn.innerHTML = '<span class="copy-icon">📋</span> Copy';
+            }, 2000);
+        });
+    }
+
+    subUrl.addEventListener('input', onSubInput);
+    subClear.addEventListener('click', () => {
+        subUrl.value = '';
+        onSubInput();
+    });
+    btnSub.addEventListener('click', onSub);
+    // Re-run the enhancement when the shared options change (selects vs textareas).
+    [enhancerFp, enhancerFmPreset].forEach(el => el.addEventListener('change', scheduleSubRender));
+    [enhancerCs, enhancerFm].forEach(el => el.addEventListener('input', scheduleSubRender));
+    btnCopySub.addEventListener('click', () => onCopySub(btnCopySub, subResults.join('\n')));
+    btnDownloadSub.addEventListener('click', () => {
+        if (!subResults.length) return;
+        downloadText('enhanced-configs.txt', subResults.join('\n') + '\n');
+    });
+    btnDownloadSubB64.addEventListener('click', () => {
+        if (!subResults.length) return;
+        // Standard subscription body: UTF-8 bytes -> base64, no line breaks.
+        // Chunked because a spread over a few hundred KB overflows the arg limit.
+        const bytes = new TextEncoder().encode(subResults.join('\n'));
+        let bin = '';
+        for (let i = 0; i < bytes.length; i += 0x8000) {
+            bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+        }
+        downloadText('enhanced-configs-base64.txt', btoa(bin));
+    });
+
     // ===== Main Tab switching =====
+    // The Enhancement Options card is one shared node: it is moved into whichever
+    // of the two enhancer-driven tabs is active, so both always read the same
+    // fp / cs / fm values instead of drifting apart as two copies would.
+    const enhancerOptionsCard = document.getElementById('enhancer-options-card');
+    const enhancerOptionsSlot = document.getElementById('enhancer-options-slot');
+    const subOptionsSlot = document.getElementById('sub-options-slot');
+
     function switchMainTab(viewName) {
         mainTabs.forEach(t => {
             t.classList.toggle('active', t.dataset.view === viewName);
         });
         viewChain.style.display = viewName === 'chain' ? '' : 'none';
         viewEnhancer.style.display = viewName === 'enhancer' ? '' : 'none';
+        viewSub.style.display = viewName === 'sub' ? '' : 'none';
+
+        const optionsTarget = viewName === 'sub' ? subOptionsSlot : enhancerOptionsSlot;
+        if (enhancerOptionsCard && optionsTarget) optionsTarget.appendChild(enhancerOptionsCard);
         document.querySelectorAll('.protocol-badges .badge').forEach(badge => {
             const show = viewName === 'chain' || ['vless', 'trojan'].includes(badge.dataset.protocol);
             badge.style.display = show ? '' : 'none';
@@ -2024,19 +2444,6 @@
     // Apply badge visibility for the initial view (enhancer is active by default)
     switchMainTab('enhancer');
 
-    // ===== Tab switching =====
-    function switchTab(tabName) {
-        [tabXray, tabSingbox].forEach(t => t.classList.remove('active'));
-        [panelXray, panelSingbox].forEach(p => p.classList.remove('active'));
-
-        if (tabName === 'xray') {
-            tabXray.classList.add('active');
-            panelXray.classList.add('active');
-        } else {
-            tabSingbox.classList.add('active');
-            panelSingbox.classList.add('active');
-        }
-    }
 
     function switchSubTab(subTabName) {
         const subTabs = document.querySelectorAll('.sub-tab');

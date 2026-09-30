@@ -43,6 +43,7 @@
         <!-- Main Tabs -->
         <nav class="main-tabs">
             <button class="main-tab active" data-view="enhancer">🧬 Fragment + Fingerprint</button>
+            <button class="main-tab" data-view="sub">📥 Subscription</button>
             <button class="main-tab" data-view="chain">🔗 Chain Builder</button>
         </nav>
 
@@ -391,8 +392,9 @@
                 <div class="parsed-info" id="enhancer-parsed"></div>
             </div>
 
-            <!-- Options -->
-            <div class="settings-card">
+            <!-- Options (shared card — moved into the active tab on switch) -->
+            <div id="enhancer-options-slot">
+                <div class="settings-card" id="enhancer-options-card">
                 <h3 class="settings-title">⚙️ Enhancement Options</h3>
                 <div class="settings-grid">
                     <div class="setting-item">
@@ -427,6 +429,7 @@
                         <textarea id="enhancer-fm" class="setting-textarea" rows="5" spellcheck="false">{"tcp": [{"type": "fragment", "settings": {"packets": "tlshello", "lengths": ["0", "104", "1"], "delays": ["0"], "maxSplit": "0"}},{"type": "fragment", "settings": {"packets": "1-1", "lengths": ["114", "1"], "delays": ["1"], "maxSplit": "11"}}]}</textarea>
                     </div>
                 </div>
+            </div>
             </div>
 
             <!-- Generate -->
@@ -478,6 +481,122 @@
                                 target="_blank">PattN</a>.</li>
                         <li><strong>Android</strong> — use <a href="https://github.com/patterniha/PattNG"
                                 target="_blank">PattNG</a>.</li>
+                    </ul>
+                </div>
+            </details>
+
+            <footer class="footer">
+                <p>Project Repository: <a href="https://github.com/Hidden-Node/proxy-builder"
+                        target="_blank">Hidden-Node/proxy-builder</a></p>
+                <p>Based on <a href="https://github.com/patterniha/PattNG" target="_blank">PattNG</a> export-to-clipboard
+                    logic (cs / fm / fp injection)</p>
+            </footer>
+        </div>
+
+        <!-- ===== View: Subscription Import ===== -->
+        <div id="view-sub" style="display:none;">
+            <!-- Input -->
+            <div class="config-card" id="sub-card">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span class="card-icon">📥</span>
+                        <div>
+                            <h2>Subscription Import</h2>
+                            <p class="card-hint">Paste a subscription link — or its contents — fetches it, decodes (plain or
+                                        base64) and enhances every config inside</p>
+                        </div>
+                    </div>
+                    <div class="card-header-right">
+                        <span class="protocol-tag" id="sub-protocol-tag">—</span>
+                    </div>
+                </div>
+                <div class="input-group">
+                    <input type="url" id="sub-url" class="config-input sub-url-input"
+                        placeholder="https://example.com/sub/your-token" spellcheck="false"
+                        autocomplete="off">
+                    <button class="btn-clear" id="sub-clear" title="Clear">✕</button>
+                </div>
+                <div class="setting-item" style="margin-top:14px;">
+                    <label for="sub-proxy">Fetch Route</label>
+                    <select id="sub-proxy">
+                        <option value="direct" selected>Direct only (fastest, CORS-permitting providers)</option>
+                        <option value="allorigins">allorigins.win (often down)</option>
+                        <option value="codetabs">codetabs.com (often down)</option>
+                        <option value="corsproxy">corsproxy.io (needs API key)</option>
+                        <option value="cors-anywhere">cors-anywhere (needs demo opt-in)</option>
+                        <option value="thingproxy">thingproxy</option>
+                    </select>
+                </div>
+                <div class="parsed-info" id="sub-parsed"></div>
+            </div>
+
+            <!-- Options (shared card — moved here from the Enhancer tab) -->
+            <div id="sub-options-slot"></div>
+
+            <!-- Generate -->
+            <div class="generate-section">
+                <button class="btn-generate" id="btn-sub" disabled>
+                    <span class="btn-icon">⚡</span> Fetch &amp; Enhance
+                </button>
+                <p class="generate-hint" id="sub-hint">Paste a subscription link above to enable</p>
+            </div>
+
+            <!-- Output -->
+            <div class="output-section" id="sub-output-section" style="display:none;">
+                <div class="output-header">
+                    <h3>📋 Enhanced Configs</h3>
+                    <div class="output-actions">
+                        <button class="btn-copy" id="btn-copy-sub" title="Copy to clipboard">
+                            <span class="copy-icon">📋</span> Copy
+                        </button>
+                        <button class="btn-download" id="btn-download-sub" title="Download as .txt (one config per line)">
+                            <span class="download-icon">💾</span> .txt
+                        </button>
+                        <button class="btn-download" id="btn-download-sub-b64"
+                            title="Download as base64 .txt (subscription format)">
+                            <span class="download-icon">🔐</span> base64 .txt
+                        </button>
+                    </div>
+                </div>
+                <div class="output-remark" id="sub-output-remark"></div>
+                <pre class="output-code enhancer-output-code"><code id="sub-output-url"></code></pre>
+            </div>
+
+            <details class="info-section">
+                <summary>ℹ️ How Subscription Import Works</summary>
+                <div class="info-content">
+                    <p>Paste a subscription link and this tool fetches it in your browser, then runs every config
+                        through the <strong>Fragment + Fingerprint</strong> enhancer.</p>
+                    <ul>
+                        <li><strong>Fetch</strong> — tried directly first (works when the provider sends CORS headers),
+                            then through the selected CORS proxy; if both fail, the provider blocks browser access
+                            and the link's content must be pasted manually.</li>
+                        <li><strong>Pasted content</strong> — if the box holds a list of configs (or a base64 blob)
+                            instead of a link, nothing is fetched; the content is enhanced as-is.</li>
+                        <li><strong>Decode</strong> — accepts both plain-text lists and base64-encoded subscription
+                            bodies.</li>
+                        <li><strong>Enhance</strong> — uses the <code>fp</code> / <code>cs</code> / <code>fm</code>
+                            values set in the <strong>Fragment + Fingerprint</strong> tab. Fragment presets apply to
+                            TLS configs only.</li>
+                        <li><strong>Server override</strong> from the Enhancer tab is ignored here — a subscription
+                            holds many servers, so each config keeps its own address.</li>
+                    </ul>
+                    <h4>Output Formats</h4>
+                    <ul>
+                        <li><strong>Copy</strong> — clipboard, one config per line.</li>
+                        <li><strong>.txt</strong> — one config per line, ready for bulk import (v2rayNG, v2rayN,
+                            Nekobox...).</li>
+                        <li><strong>base64 .txt</strong> — the whole list base64-encoded, the standard subscription
+                            body format.</li>
+                    </ul>
+                    <h4>⚠️ Notes</h4>
+                    <ul>
+                        <li>Only <strong>VLESS</strong> and <strong>Trojan</strong> configs can be enhanced — others
+                            are counted as skipped.</li>
+                        <li>Configs without <strong>TLS / Reality</strong> are exported but fragment settings are not
+                            applied to them.</li>
+                        <li>If the fetch fails, the provider likely blocks browser access — open the link in a new tab
+                            and paste its contents straight into this box.</li>
                     </ul>
                 </div>
             </details>

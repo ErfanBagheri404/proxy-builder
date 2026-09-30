@@ -547,6 +547,12 @@ body {
     font-size: 0.8rem;
 }
 
+/* Single-line subscription URL field */
+.sub-url-input {
+    min-height: 52px;
+    padding-right: 40px;
+}
+
 .btn-clear {
     position: absolute;
     top: 10px;
@@ -759,6 +765,15 @@ body {
 .enhancer-output-code {
     white-space: pre-wrap;
     word-break: break-all;
+}
+
+/* ===== Subscription view spacing ===== */
+#view-sub .config-card {
+    margin-bottom: 24px;
+}
+
+#view-sub .generate-section {
+    margin-top: 0;
 }
 
 /* ===== Generate Button ===== */
