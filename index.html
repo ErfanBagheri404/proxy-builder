@@ -511,9 +511,9 @@
                     </div>
                 </div>
                 <div class="input-group">
-                    <input type="url" id="sub-url" class="config-input sub-url-input"
-                        placeholder="https://example.com/sub/your-token" spellcheck="false"
-                        autocomplete="off">
+                    <textarea id="sub-url" class="config-input sub-url-input" rows="2"
+                        placeholder="https://example.com/sub/your-token — or paste the subscription contents"
+                        spellcheck="false" autocomplete="off"></textarea>
                     <button class="btn-clear" id="sub-clear" title="Clear">✕</button>
                 </div>
                 <div class="setting-item" style="margin-top:14px;">
@@ -527,6 +527,9 @@
                         <option value="thingproxy">thingproxy</option>
                     </select>
                 </div>
+                <p class="sub-proxy-warning">⚠️ A Fetch Route other than <strong>Direct only</strong> sends your
+                    full subscription URL — including any secret token — to a third-party server. Use it only with a
+                    link you are willing to hand to that server.</p>
                 <div class="parsed-info" id="sub-parsed"></div>
             </div>
 

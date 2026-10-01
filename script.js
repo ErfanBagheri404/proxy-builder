@@ -648,7 +648,10 @@
     function enhanceURL(raw, opts) {
         const url = raw.trim();
         if (!url) return { error: 'No URL provided' };
-        if (!url.startsWith('vless://') && !url.startsWith('trojan://')) {
+        // Case-insensitive on purpose — parseProxyURLSingle() accepts VLESS://
+        // as well, and the bulk path would otherwise count those as "skipped".
+        const scheme = url.slice(0, url.indexOf('://')).toLowerCase();
+        if (scheme !== 'vless' && scheme !== 'trojan') {
             return { error: 'Only VLESS and Trojan URLs are supported' };
         }
 
@@ -2039,12 +2042,21 @@
     // Bodies can be several hundred KB and arrive slowly, so we abort on
     // silence rather than after a fixed total time.
     const SUB_IDLE_MS = 30000;
+    // Backstop for a body that trickles forever without ever going silent.
+    const SUB_TOTAL_MS = 5 * 60 * 1000;
 
     let subResults = [];
     let subRawConfigs = [];
     let subMode = 'link';
     let subBusy = false;
+    // Two timers, not one: the progress throttle and the option debounce must
+    // not cancel each other.
+    let subProgressTimer = null;
     let subRenderTimer = null;
+
+    // One scheme list for every branch of the bulk path, so a scheme added here
+    // works in plain text, whole-blob base64 and per-line base64 alike.
+    const SUB_SCHEME = /^(vless|vmess|trojan|ss|socks5?|tg):\/\//i;
 
     // Returns every proxy line found in a subscription body, whether it arrives
     // as plain text or as one base64 blob.
@@ -2053,7 +2065,7 @@
         if (!text) return [];
 
         // Plain text list — nothing to decode.
-        if (extractLines(text).some(l => /^vless:\/\/|^vmess:\/\/|^trojan:\/\/|^ss:\/\/|^socks5?:\/\//i.test(l))) {
+        if (extractLines(text).some(l => SUB_SCHEME.test(l))) {
             return extractLines(text);
         }
 
@@ -2062,7 +2074,7 @@
         const whole = safeAtob(text.replace(/\s+/g, ''));
         if (whole) {
             const lines = extractLines(whole);
-            if (lines.some(l => /^vless:\/\/|^vmess:\/\/|^trojan:\/\/|^ss:\/\/|^socks5?:\/\//i.test(l))) {
+            if (lines.some(l => SUB_SCHEME.test(l))) {
                 return lines;
             }
         }
@@ -2074,18 +2086,22 @@
             .map(l => safeAtob(l.replace(/^\/\/.*$/, '').trim()))
             .filter(Boolean)
             .flatMap(extractLines)
-            .filter(l => /^(vless|vmess|trojan|ss|socks5?|tg):\/\//i.test(l));
+            .filter(l => SUB_SCHEME.test(l));
     }
 
     // Streams the response so a large body can arrive over a slow link without
-    // hitting a fixed timeout; the connection is only aborted after SUB_IDLE_MS
-    // of silence. onProgress(receivedBytes, totalBytes) drives the status line.
+    // hitting a fixed timeout; the connection is aborted after SUB_IDLE_MS of
+    // silence, with SUB_TOTAL_MS as a backstop so a trickle that never goes
+    // silent for a full 30s still ends. onProgress(receivedBytes, totalBytes)
+    // drives the status line.
     async function fetchTextWithProgress(url, onProgress) {
         const ctrl = new AbortController();
-        let timer = setTimeout(() => ctrl.abort(), SUB_IDLE_MS);
+        const abort = () => ctrl.abort();
+        let timer = setTimeout(abort, SUB_IDLE_MS);
+        const totalTimer = setTimeout(abort, SUB_TOTAL_MS);
         const kick = () => {
             clearTimeout(timer);
-            timer = setTimeout(() => ctrl.abort(), SUB_IDLE_MS);
+            timer = setTimeout(abort, SUB_IDLE_MS);
         };
         try {
             const res = await fetch(url, { signal: ctrl.signal, redirect: 'follow' });
@@ -2120,16 +2136,28 @@
             return new TextDecoder('utf-8').decode(buf);
         } finally {
             clearTimeout(timer);
+            clearTimeout(totalTimer);
         }
     }
 
+    // The direct fetch is the only route that keeps the subscription token local,
+    // so it is tried first. A proxy is used only when the failure was a transport
+    // failure (TypeError = CORS/DNS, AbortError = timeout): an HTTP 4xx/5xx from
+    // the provider is a real answer, and re-sending it through a proxy would
+    // double the request and replace a clear error with a vague one.
     async function fetchSubBody(url, onProgress) {
+        const proxy = CORS_PROXIES.find(p => p.id === subProxy.value);
         try {
             return await fetchTextWithProgress(url, onProgress);
         } catch (directError) {
-            const proxy = CORS_PROXIES.find(p => p.id === subProxy.value);
-            if (!proxy || !proxy.wrap) throw directError;
-            return await fetchTextWithProgress(proxy.wrap(url), onProgress);
+            const transport = directError && (directError.name === 'TypeError' || directError.name === 'AbortError');
+            if (!transport || !proxy || !proxy.wrap) throw directError;
+            try {
+                return await fetchTextWithProgress(proxy.wrap(url), onProgress);
+            } catch (proxyError) {
+                // The proxy is the more likely culprit here, so report its error.
+                throw proxyError;
+            }
         }
     }
 
@@ -2141,14 +2169,29 @@
         subParsed.appendChild(err);
     }
 
-    function subErrorText(e) {
+    // Reports the transport error honestly. A 4xx/5xx from the provider is a real
+    // answer and must not be retried through a proxy (the proxy would only mask
+    // it), and the CORS case gets a message that points at the paste fallback.
+    function subErrorText(e, route) {
         const msg = (e && e.message) || String(e);
         if (e && e.name === 'AbortError') {
             return 'The connection went silent for ' + Math.round(SUB_IDLE_MS / 1000) +
                 's — the provider is throttling or unreachable. Retry, or paste the subscription contents into this box.';
         }
-        if (/^HTTP \d+$/.test(msg)) return 'The server replied ' + msg + '.';
-        return 'Blocked by CORS or the network (' + msg + '). Pick another CORS proxy above, or open the link in a new tab and paste its contents into this box.';
+        if (/^HTTP \d+$/.test(msg)) {
+            const code = Number(msg.slice(5));
+            return 'The server replied ' + code + '. ' +
+                (code === 401 || code === 403
+                    ? 'That looks like an expired or invalid subscription link.'
+                    : code === 404
+                        ? 'That subscription link does not exist.'
+                        : 'The subscription URL is wrong or the server is refusing it.');
+        }
+        if (/Failed to fetch|NetworkError|Load failed/i.test(msg)) {
+            return 'This provider blocks browser access (it sends no CORS headers), so the direct fetch ' +
+                'was refused. Open the link in a new tab and paste its contents into this box — that always works.';
+        }
+        return 'Could not read the response (' + msg + ').';
     }
 
     // One http(s) line = a link to fetch. Anything else that looks like a
@@ -2158,10 +2201,29 @@
         return !/\s/.test(v) && /^https?:\/\/\S+$/i.test(v);
     }
 
+    // Mirrors extractSubConfigs() instead of guessing from the first line or a
+    // length threshold: any line with a known scheme counts, and a short base64
+    // blob is accepted if it actually decodes to a config.
     function subLooksLikeContent(v) {
-        const firstLine = extractLines(v)[0] || '';
-        return /^(vless|vmess|trojan|ss|socks5?|tg):\/\//i.test(firstLine) ||
-            /^[A-Za-z0-9+/=_-]{400,}$/.test(v.replace(/\s+/g, ''));
+        if (extractLines(v).some(l => SUB_SCHEME.test(l))) return true;
+        const whole = safeAtob(v.replace(/\s+/g, ''));
+        return !!whole && extractLines(whole).some(l => SUB_SCHEME.test(l));
+    }
+
+    // Returns 'link', 'content' or null for input that is neither. Both the input
+    // handler and the post-fetch re-validation go through this, so a field that
+    // was replaced with junk mid-fetch can never re-enable the button.
+    function subValidate(v) {
+        if (subIsLink(v)) {
+            let u = null;
+            try {
+                u = new URL(v);
+            } catch (e) {
+                u = null;
+            }
+            return u && u.hostname ? 'link' : null;
+        }
+        return subLooksLikeContent(v) ? 'content' : null;
     }
 
     function subShowInfo(label, value) {
@@ -2185,31 +2247,22 @@
         subProtocolTag.textContent = '—';
         subRawConfigs = [];
 
+        // Any edit invalidates the previous result: leaving a 65-line output and
+        // its Copy/Download buttons under a new error message is misleading.
+        subOutputSection.style.display = 'none';
+        subResults = [];
+        subParsed.textContent = '';
+        subHint.style.color = '';
+
         if (!raw) {
-            subParsed.textContent = '';
             btnSub.disabled = true;
             subHint.textContent = 'Paste a subscription link — or its contents — to enable';
-            subHint.style.color = '';
-            subOutputSection.style.display = 'none';
-            subResults = [];
             return;
         }
 
-        if (subIsLink(raw)) {
-            subMode = 'link';
-            let u = null;
-            try {
-                u = new URL(raw);
-            } catch (e) {
-                u = null;
-            }
-            if (!u || !u.hostname) {
-                setSubError('Invalid URL. It must start with http:// or https://');
-                btnSub.disabled = true;
-                subHint.textContent = 'Paste a valid link above to enable';
-                subHint.style.color = '';
-                return;
-            }
+        subMode = subValidate(raw);
+        if (subMode === 'link') {
+            const u = new URL(raw);
             subCard.classList.add('valid');
             subProtocolTag.textContent = u.protocol.replace(':', '').toUpperCase() || 'HTTP';
             subProtocolTag.classList.add('active');
@@ -2220,8 +2273,7 @@
             return;
         }
 
-        if (subLooksLikeContent(raw)) {
-            subMode = 'content';
+        if (subMode === 'content') {
             subCard.classList.add('valid');
             subProtocolTag.textContent = 'CONTENT';
             subProtocolTag.classList.add('active');
@@ -2232,15 +2284,17 @@
             return;
         }
 
+        subMode = null;
         setSubError('Invalid input. Paste a link starting with http:// or https://, or paste the subscription contents.');
         btnSub.disabled = true;
         subHint.textContent = 'Paste a valid link above to enable';
-        subHint.style.color = '';
     }
 
     // Single render path for both modes: enhance the parsed configs, show counts,
     // and hand the same text to the copy / .txt / base64 .txt actions.
-    function renderSubResults(configs) {
+    // focus=true is passed only by an explicit Fetch — an option tweak re-renders
+    // in place and must not yank the page down to the output.
+    function renderSubResults(configs, focus) {
         let enhanced = [];
         let skipped = 0;
         let invalid = 0;
@@ -2285,7 +2339,7 @@
         subOutputRemark.textContent = parts.join(' · ');
         subOutputUrl.textContent = enhanced.join('\n');
         subOutputSection.style.display = 'block';
-        subOutputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (focus) subOutputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
         subHint.textContent = 'Done';
         subHint.style.color = '#4cdf86';
     }
@@ -2307,24 +2361,36 @@
         if (!subBusy) return;
         subBusy = false;
         // A queued progress tick must not overwrite the final status.
+        if (subProgressTimer) {
+            clearTimeout(subProgressTimer);
+            subProgressTimer = null;
+        }
         if (subRenderTimer) {
             clearTimeout(subRenderTimer);
             subRenderTimer = null;
         }
-        // Re-enable for retry (unless the field was edited/cleared mid-fetch).
-        btnSub.disabled = !subUrl.value.trim();
-        // The Enhancer tab auto-fills its server field from the last pasted URL —
-        // that is a single-server value and must not leak into bulk results.
-        lastAutoServer = '';
+        // Re-validate the field (it may have been replaced with junk mid-fetch),
+        // but only the mode and the button state: the input handler also wipes
+        // the output, and we are about to render a fresh result over it.
+        const valid = subValidate(subUrl.value.trim());
+        btnSub.disabled = !valid;
+        if (!valid) {
+            subHint.textContent = 'Input changed during the fetch — fetch again';
+            subHint.style.color = '#f0c040';
+        }
+        // Note: the Enhancer's server field and its lastAutoServer tracking are
+        // deliberately untouched here — subscriptions call enhanceURL with
+        // ignoreServer:true, so they never read the field, and clearing
+        // lastAutoServer alone would desync the auto-fill logic on next paste.
         const configs = extractSubConfigs(body);
         subRawConfigs = configs;
-        renderSubResults(configs);
+        renderSubResults(configs, true);
     }
 
     function onSubProgress(loaded, total) {
-        if (subRenderTimer) return;
-        subRenderTimer = setTimeout(() => {
-            subRenderTimer = null;
+        if (subProgressTimer) return;
+        subProgressTimer = setTimeout(() => {
+            subProgressTimer = null;
             if (!subBusy) return;
             const kb = Math.round(loaded / 1024);
             subHint.textContent = total
@@ -2337,10 +2403,18 @@
         const raw = subUrl.value.trim();
         if (!raw || subBusy) return;
 
+        // Validate freshly rather than trusting the cached subMode: the field may
+        // have changed since the last input event.
+        subMode = subValidate(raw);
+        if (!subMode) {
+            onSubInput();
+            return;
+        }
+
         // Pasted content: no fetch at all.
         if (subMode === 'content') {
             subRawConfigs = extractSubConfigs(raw);
-            renderSubResults(subRawConfigs);
+            renderSubResults(subRawConfigs, true);
             return;
         }
 
@@ -2384,6 +2458,9 @@
                 btn.classList.remove('copied');
                 btn.innerHTML = '<span class="copy-icon">📋</span> Copy';
             }, 2000);
+        }).catch(() => {
+            subHint.textContent = 'Copy failed — select the output text and copy it manually';
+            subHint.style.color = '#f0c040';
         });
     }
 
@@ -2440,6 +2517,19 @@
     mainTabs.forEach(tab => {
         tab.addEventListener('click', () => switchMainTab(tab.dataset.view));
     });
+
+    function switchTab(tabName) {
+        [tabXray, tabSingbox].forEach(t => t.classList.remove('active'));
+        [panelXray, panelSingbox].forEach(p => p.classList.remove('active'));
+
+        if (tabName === 'xray') {
+            tabXray.classList.add('active');
+            panelXray.classList.add('active');
+        } else {
+            tabSingbox.classList.add('active');
+            panelSingbox.classList.add('active');
+        }
+    }
 
     // Apply badge visibility for the initial view (enhancer is active by default)
     switchMainTab('enhancer');
