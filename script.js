@@ -2046,23 +2046,38 @@
     const SUB_SCHEME = /^(vless|vmess|trojan|ss|socks5?|tg):\/\//i;
 
     // Returns every proxy line found in a subscription body, whether it arrives
-    // as plain text or as one base64 blob.
+    // as plain text, as one base64 blob, or as a mix of plain lines and
+    // per-line base64 blobs.
     function extractSubConfigs(body) {
         let text = (body || '').trim();
         if (!text) return [];
 
-        // Plain text list — nothing to decode.
-        if (extractLines(text).some(l => SUB_SCHEME.test(l))) {
-            return extractLines(text);
+        const lines = extractLines(text);
+
+        // Plain text list that also carries per-line base64 blobs: keep every
+        // line, exactly as before, and append whatever the non-plain lines
+        // decode to. Inputs without any base64 line return byte-identical
+        // results to the old early-return.
+        if (lines.some(l => SUB_SCHEME.test(l))) {
+            const out = lines.slice();
+            for (const line of lines) {
+                if (SUB_SCHEME.test(line)) continue;
+                const decoded = safeAtob(line.replace(/^\/\/.*$/, '').trim());
+                if (!decoded) continue;
+                for (const dl of extractLines(decoded)) {
+                    if (SUB_SCHEME.test(dl) && !out.includes(dl)) out.push(dl);
+                }
+            }
+            return out;
         }
 
         // Base64 body: try the whole payload first (standard subscription format),
         // then line by line for providers that send a base64 blob per config.
         const whole = safeAtob(text.replace(/\s+/g, ''));
         if (whole) {
-            const lines = extractLines(whole);
-            if (lines.some(l => SUB_SCHEME.test(l))) {
-                return lines;
+            const decodedLines = extractLines(whole);
+            if (decodedLines.some(l => SUB_SCHEME.test(l))) {
+                return decodedLines;
             }
         }
 
@@ -2083,23 +2098,31 @@
     // drives the status line.
     async function fetchTextWithProgress(url, onProgress) {
         const ctrl = new AbortController();
-        const abort = () => ctrl.abort();
-        let timer = setTimeout(abort, SUB_IDLE_MS);
-        const totalTimer = setTimeout(abort, SUB_TOTAL_MS);
+        const abortIdle = () => ctrl.abort('idle-timeout');
+        const abortTotal = () => ctrl.abort('total-timeout');
+        let timer = setTimeout(abortIdle, SUB_IDLE_MS);
+        const totalTimer = setTimeout(abortTotal, SUB_TOTAL_MS);
         const kick = () => {
             clearTimeout(timer);
-            timer = setTimeout(abort, SUB_IDLE_MS);
+            timer = setTimeout(abortIdle, SUB_IDLE_MS);
         };
         try {
             const res = await fetch(url, { signal: ctrl.signal, redirect: 'follow' });
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const total = parseInt(res.headers.get('content-length') || '0', 10);
 
-            // No streaming support — fall back to buffering the whole body.
+            // No streaming support — fall back to buffering the whole body. Kick
+            // the idle timer while it downloads so a slow-but-active transfer
+            // is not aborted like a stalled one.
             if (!res.body || typeof res.body.getReader !== 'function') {
-                const text = await res.text();
-                onProgress(text.length, total);
-                return text;
+                const keepAlive = setInterval(kick, Math.min(10000, SUB_IDLE_MS));
+                try {
+                    const text = await res.text();
+                    onProgress(text.length, total);
+                    return text;
+                } finally {
+                    clearInterval(keepAlive);
+                }
             }
 
             const reader = res.body.getReader();
@@ -2121,6 +2144,16 @@
                 offset += part.length;
             }
             return new TextDecoder('utf-8').decode(buf);
+        } catch (e) {
+            // Both timers abort the same controller, so tell the two timeouts
+            // apart by the abort reason and report the right one. Older
+            // browsers ignore the reason argument and keep the old message.
+            if (e && e.name === 'AbortError' && ctrl.signal.reason === 'total-timeout') {
+                const total = new Error('Total timeout');
+                total.name = 'SubTotalTimeout';
+                throw total;
+            }
+            throw e;
         } finally {
             clearTimeout(timer);
             clearTimeout(totalTimer);
@@ -2147,6 +2180,10 @@
     // answer, and the CORS case gets a message that points at the paste fallback.
     function subErrorText(e) {
         const msg = (e && e.message) || String(e);
+        if (e && e.name === 'SubTotalTimeout') {
+            return 'The download took longer than ' + Math.round(SUB_TOTAL_MS / 60000) +
+                ' minutes without finishing — the provider is too slow. Retry, or paste the subscription contents into this box.';
+        }
         if (e && e.name === 'AbortError') {
             return 'The connection went silent for ' + Math.round(SUB_IDLE_MS / 1000) +
                 's — the provider is throttling or unreachable. Retry, or paste the subscription contents into this box.';
