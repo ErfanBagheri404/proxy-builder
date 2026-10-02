@@ -2306,6 +2306,10 @@
 
         subResults = enhanced;
 
+        // A previous fetch may have failed without an edit in between — its
+        // error must not sit next to this fresh output.
+        subParsed.textContent = '';
+
         const parts = ['✨ ' + enhanced.length + ' enhanced config(s)'];
         if (skipped) parts.push('skipped ' + skipped + ' non-VLESS/Trojan');
         if (invalid) parts.push('ignored ' + invalid + ' unparseable line(s)');
@@ -2330,7 +2334,7 @@
         }, 300);
     }
 
-    function onSubFetched(body) {
+    function onSubFetched(body, fetchRaw) {
         if (!subBusy) return;
         subBusy = false;
         // A queued progress tick must not overwrite the final status.
@@ -2342,15 +2346,17 @@
             clearTimeout(subRenderTimer);
             subRenderTimer = null;
         }
-        // Re-validate the field (it may have been replaced with junk mid-fetch),
-        // but only the mode and the button state: the input handler also wipes
-        // the output, and we are about to render a fresh result over it.
-        const valid = subValidate(subUrl.value.trim());
-        btnSub.disabled = !valid;
-        if (!valid) {
+        // The field may have been replaced mid-fetch. Never render a body under
+        // input it no longer belongs to: the input handler already wiped the
+        // previous output, so there is nothing to show until the next fetch.
+        if (subUrl.value.trim() !== fetchRaw) {
+            subRawConfigs = [];
+            btnSub.disabled = !subValidate(subUrl.value.trim());
             subHint.textContent = 'Input changed during the fetch — fetch again';
             subHint.style.color = '#f0c040';
+            return;
         }
+        btnSub.disabled = false;
         // Note: the Enhancer's server field and its lastAutoServer tracking are
         // deliberately untouched here — subscriptions call enhanceURL with
         // ignoreServer:true, so they never read the field, and clearing
@@ -2395,10 +2401,12 @@
         btnSub.disabled = true;
         subHint.textContent = 'Fetching…';
         subHint.style.color = '';
+        // A retry without an edit must not keep the previous error on screen.
+        subParsed.textContent = '';
 
         try {
             const body = await fetchSubBody(raw, onSubProgress);
-            onSubFetched(body);
+            onSubFetched(body, raw);
         } catch (e) {
             subBusy = false;
             btnSub.disabled = false;
