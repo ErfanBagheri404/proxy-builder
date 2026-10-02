@@ -557,9 +557,8 @@
                     <p>Paste a subscription link and this tool fetches it in your browser, then runs every config
                         through the <strong>Fragment + Fingerprint</strong> enhancer.</p>
                     <ul>
-                        <li><strong>Fetch</strong> — tried directly first (works when the provider sends CORS headers),
-                            then through the selected CORS proxy; if both fail, the provider blocks browser access
-                            and the link's content must be pasted manually.</li>
+                        <li><strong>Fetch</strong> — fetched directly in your browser (works when the provider sends CORS headers);
+                            if the provider blocks browser access, the link's content must be pasted manually.</li>
                         <li><strong>Pasted content</strong> — if the box holds a list of configs (or a base64 blob)
                             instead of a link, nothing is fetched; the content is enhanced as-is.</li>
                         <li><strong>Decode</strong> — accepts both plain-text lists and base64-encoded subscription

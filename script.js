@@ -2060,12 +2060,16 @@
         // results to the old early-return.
         if (lines.some(l => SUB_SCHEME.test(l))) {
             const out = lines.slice();
+            const seen = new Set(out);
             for (const line of lines) {
                 if (SUB_SCHEME.test(line)) continue;
                 const decoded = safeAtob(line.replace(/^\/\/.*$/, '').trim());
                 if (!decoded) continue;
                 for (const dl of extractLines(decoded)) {
-                    if (SUB_SCHEME.test(dl) && !out.includes(dl)) out.push(dl);
+                    if (SUB_SCHEME.test(dl) && !seen.has(dl)) {
+                        seen.add(dl);
+                        out.push(dl);
+                    }
                 }
             }
             return out;
@@ -2111,14 +2115,15 @@
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const total = parseInt(res.headers.get('content-length') || '0', 10);
 
-            // No streaming support — fall back to buffering the whole body. Kick
-            // the idle timer while it downloads so a slow-but-active transfer
-            // is not aborted like a stalled one.
+            // No streaming support — fall back to buffering the whole body.
+            // Without progress events a slow-but-active transfer cannot be told
+            // apart from a stalled one, so keep resetting the idle timer and
+            // rely on the total-timeout backstop to end true stalls.
             if (!res.body || typeof res.body.getReader !== 'function') {
                 const keepAlive = setInterval(kick, Math.min(10000, SUB_IDLE_MS));
                 try {
                     const text = await res.text();
-                    onProgress(text.length, total);
+                    onProgress(new TextEncoder().encode(text).length, total);
                     return text;
                 } finally {
                     clearInterval(keepAlive);
@@ -2223,10 +2228,12 @@
         return !!whole && extractLines(whole).some(l => SUB_SCHEME.test(l));
     }
 
-    // A single http(s) URL with no path and an explicit port is far more likely
-    // an HTTP proxy address than a subscription link (those carry a path or
-    // token). Fetching a proxy port would only fail confusingly, so reject it
-    // up front with guidance instead of treating it as a link to fetch.
+    // A single http(s) URL with an explicit port but no path, query or hash is
+    // far more likely an HTTP proxy address than a subscription link (those
+    // carry a path, a query token, or both). Userinfo is allowed: proxies
+    // commonly embed credentials while subscription links effectively never do.
+    // Fetching a proxy port would only fail confusingly, so reject it up front
+    // with guidance instead of treating it as a link to fetch.
     function subLooksLikeProxy(v) {
         if (/\s/.test(v) || !/^https?:\/\/\S+$/i.test(v)) return false;
         let u = null;
@@ -2235,7 +2242,8 @@
         } catch (e) {
             return false;
         }
-        return !!u.hostname && !!u.port && (u.pathname === '/' || u.pathname === '');
+        return !!u.hostname && !!u.port &&
+            (u.pathname === '/' || u.pathname === '') && !u.search && !u.hash;
     }
 
     // Returns 'link', 'content', 'proxy' or null for input that is none of those.
@@ -2285,6 +2293,8 @@
         // Any edit invalidates the previous result: leaving a 65-line output and
         // its Copy/Download buttons under a new error message is misleading.
         subOutputSection.style.display = 'none';
+        subOutputUrl.textContent = '';
+        subOutputRemark.textContent = '';
         subResults = [];
         subParsed.textContent = '';
         subHint.style.color = '';
@@ -2377,8 +2387,10 @@
         subResults = enhanced;
 
         // A previous fetch may have failed without an edit in between — its
-        // error must not sit next to this fresh output.
+        // error and its red card styling must not sit next to this output.
         subParsed.textContent = '';
+        subCard.classList.remove('invalid');
+        subCard.classList.add('valid');
 
         const parts = ['✨ ' + enhanced.length + ' enhanced config(s)'];
         if (skipped) parts.push('skipped ' + skipped + ' non-VLESS/Trojan');
@@ -2404,6 +2416,16 @@
         }, 300);
     }
 
+    // Shared by the fetch success and error paths: the field changed mid-fetch,
+    // so drop whatever came back and say so — never render anything, error or
+    // output, under input it no longer belongs to.
+    function onSubStale() {
+        subRawConfigs = [];
+        btnSub.disabled = !subCanRun(subValidate(subUrl.value.trim()));
+        subHint.textContent = 'Input changed during the fetch — fetch again';
+        subHint.style.color = '#f0c040';
+    }
+
     function onSubFetched(body, fetchRaw) {
         if (!subBusy) return;
         subBusy = false;
@@ -2420,10 +2442,7 @@
         // input it no longer belongs to: the input handler already wiped the
         // previous output, so there is nothing to show until the next fetch.
         if (subUrl.value.trim() !== fetchRaw) {
-            subRawConfigs = [];
-            btnSub.disabled = !subCanRun(subValidate(subUrl.value.trim()));
-            subHint.textContent = 'Input changed during the fetch — fetch again';
-            subHint.style.color = '#f0c040';
+            onSubStale();
             return;
         }
         btnSub.disabled = false;
@@ -2471,14 +2490,20 @@
         btnSub.disabled = true;
         subHint.textContent = 'Fetching…';
         subHint.style.color = '';
-        // A retry without an edit must not keep the previous error on screen.
+        // A retry without an edit must not keep the previous error — or the
+        // previous red card styling — on screen.
         subParsed.textContent = '';
+        subCard.classList.remove('invalid');
 
         try {
             const body = await fetchSubBody(raw, onSubProgress);
             onSubFetched(body, raw);
         } catch (e) {
             subBusy = false;
+            if (subUrl.value.trim() !== raw) {
+                onSubStale();
+                return;
+            }
             btnSub.disabled = false;
             subHint.textContent = 'Fetch failed';
             subHint.style.color = '#f05050';
