@@ -503,7 +503,8 @@
                         <div>
                             <h2>Subscription Import</h2>
                             <p class="card-hint">Paste a subscription link — or its contents — fetches it, decodes (plain or
-                                        base64) and enhances every config inside</p>
+                                        base64) and enhances every config inside. You can also drop a saved .txt file
+                                        onto this card.</p>
                         </div>
                     </div>
                     <div class="card-header-right">
@@ -526,6 +527,10 @@
             <div class="generate-section">
                 <button class="btn-generate" id="btn-sub" disabled>
                     <span class="btn-icon">⚡</span> Fetch &amp; Enhance
+                </button>
+                <button class="btn-subtle btn-open-link" id="btn-open-sub" disabled
+                    title="Open the subscription link in a new tab">
+                    <span>↗</span> Open link
                 </button>
                 <p class="generate-hint" id="sub-hint">Paste a subscription link above to enable</p>
             </div>
@@ -558,9 +563,12 @@
                         through the <strong>Fragment + Fingerprint</strong> enhancer.</p>
                     <ul>
                         <li><strong>Fetch</strong> — fetched directly in your browser (works when the provider sends CORS headers);
-                            if the provider blocks browser access, the link's content must be pasted manually.</li>
+                            if the provider blocks browser access, the link's content must be pasted manually.
+                            The error then shows 3 quick steps, and the <strong>Open link</strong> button next to
+                            Fetch opens the URL in a new tab for copying.</li>
                         <li><strong>Pasted content</strong> — if the box holds a list of configs (or a base64 blob)
-                            instead of a link, nothing is fetched; the content is enhanced as-is.</li>
+                            instead of a link, nothing is fetched; the content is enhanced as-is. A saved
+                            subscription file can also be dropped onto the input card.</li>
                         <li><strong>Decode</strong> — accepts both plain-text lists and base64-encoded subscription
                             bodies.</li>
                         <li><strong>Enhance</strong> — uses the <code>fp</code> / <code>cs</code> / <code>fm</code>

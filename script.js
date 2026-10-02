@@ -2018,6 +2018,7 @@
     const subProtocolTag = document.getElementById('sub-protocol-tag');
     const subCard = document.getElementById('sub-card');
     const btnSub = document.getElementById('btn-sub');
+    const btnOpenSub = document.getElementById('btn-open-sub');
     const subHint = document.getElementById('sub-hint');
     const subOutputSection = document.getElementById('sub-output-section');
     const subOutputUrl = document.getElementById('sub-output-url');
@@ -2181,6 +2182,82 @@
         subParsed.appendChild(err);
     }
 
+    // Opens a subscription link for manual copying. The URL always comes from
+    // the user's own paste (validated as a link before any call site runs),
+    // so this is equivalent to them opening it from the address bar.
+    function openSubLink(url) {
+        window.open(url, '_blank', 'noopener');
+    }
+
+    // Enables the Open-link button exactly when the field holds a link.
+    function syncOpenButton() {
+        btnOpenSub.disabled = subValidate(subUrl.value.trim()) !== 'link';
+    }
+
+    // Step-by-step fallback shown when the provider blocks browser fetches.
+    // Built with DOM APIs only (no innerHTML): every string here is static,
+    // the only variable part is the link passed to window.open on click.
+    function setSubCorsGuide(linkUrl) {
+        const guide = document.createElement('div');
+        guide.className = 'sub-guide';
+        const title = document.createElement('div');
+        title.textContent = 'Get the content manually — 3 quick steps:';
+        const steps = document.createElement('ol');
+        const first = document.createElement('li');
+        first.textContent = 'Open your subscription link in a new tab: ';
+        const openBtn = document.createElement('button');
+        openBtn.type = 'button';
+        openBtn.className = 'btn-subtle';
+        openBtn.textContent = '↗ Open link';
+        openBtn.addEventListener('click', () => openSubLink(linkUrl));
+        first.appendChild(openBtn);
+        const second = document.createElement('li');
+        second.textContent = 'Select everything there and copy it (Ctrl+A, then Ctrl+C).';
+        const third = document.createElement('li');
+        third.textContent = 'Paste it into the box above and press Fetch & Enhance.';
+        steps.append(first, second, third);
+        guide.append(title, steps);
+        subParsed.appendChild(guide);
+    }
+
+    // Accept a saved subscription file (.txt) dropped onto the card. Everything
+    // stays local: FileReader never uploads anything.
+    const SUB_MAX_FILE_BYTES = 2 * 1024 * 1024;
+    function onSubDragOver(e) {
+        e.preventDefault();
+        subCard.classList.add('dragover');
+    }
+    function onSubDragLeave(e) {
+        e.preventDefault();
+        subCard.classList.remove('dragover');
+    }
+    function onSubDrop(e) {
+        e.preventDefault();
+        subCard.classList.remove('dragover');
+        const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (!file) return;
+        if (file.size > SUB_MAX_FILE_BYTES) {
+            setSubError('File too large — subscription files are usually a few hundred KB at most.');
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            subUrl.value = String(reader.result || '');
+            onSubInput();
+            subUrl.focus();
+        };
+        reader.onerror = () => setSubError('Could not read that file.');
+        reader.readAsText(file);
+    }
+
+    // Transport failures surface as TypeError in every browser, but the message
+    // text varies ('Failed to fetch', 'NetworkError', 'Load failed', or even
+    // empty), so match the name first and the text only as fallback.
+    function subIsBlockedError(e) {
+        const msg = (e && e.message) || String(e);
+        return (e && e.name === 'TypeError') || /Failed to fetch|NetworkError|Load failed/i.test(msg);
+    }
+
     // Reports the fetch error honestly. A 4xx/5xx from the provider is a real
     // answer, and the CORS case gets a message that points at the paste fallback.
     function subErrorText(e) {
@@ -2202,10 +2279,7 @@
                         ? 'That subscription link does not exist.'
                         : 'The subscription URL is wrong or the server is refusing it.');
         }
-        // Transport failures surface as TypeError in every browser, but the
-        // message text varies ('Failed to fetch', 'NetworkError', 'Load failed',
-        // or even empty), so match the name first and the text only as fallback.
-        if ((e && e.name === 'TypeError') || /Failed to fetch|NetworkError|Load failed/i.test(msg)) {
+        if (subIsBlockedError(e)) {
             return 'This provider blocks browser access (it sends no CORS headers), so the direct fetch ' +
                 'was refused. Open the link in a new tab and paste its contents into this box — that always works.';
         }
@@ -2298,6 +2372,7 @@
         subResults = [];
         subParsed.textContent = '';
         subHint.style.color = '';
+        btnOpenSub.disabled = true;
 
         if (!raw) {
             btnSub.disabled = true;
@@ -2313,6 +2388,7 @@
             subProtocolTag.classList.add('active');
             subShowInfo('Host', u.hostname);
             btnSub.disabled = false;
+            btnOpenSub.disabled = false;
             subHint.textContent = 'Ready to fetch and enhance';
             subHint.style.color = '#4cdf86';
             return;
@@ -2422,6 +2498,7 @@
     function onSubStale() {
         subRawConfigs = [];
         btnSub.disabled = !subCanRun(subValidate(subUrl.value.trim()));
+        syncOpenButton();
         subHint.textContent = 'Input changed during the fetch — fetch again';
         subHint.style.color = '#f0c040';
     }
@@ -2446,6 +2523,7 @@
             return;
         }
         btnSub.disabled = false;
+        syncOpenButton();
         // Note: the Enhancer's server field and its lastAutoServer tracking are
         // deliberately untouched here — subscriptions call enhanceURL with
         // ignoreServer:true, so they never read the field, and clearing
@@ -2488,6 +2566,7 @@
 
         subBusy = true;
         btnSub.disabled = true;
+        btnOpenSub.disabled = true;
         subHint.textContent = 'Fetching…';
         subHint.style.color = '';
         // A retry without an edit must not keep the previous error — or the
@@ -2505,11 +2584,13 @@
                 return;
             }
             btnSub.disabled = false;
+            syncOpenButton();
             subHint.textContent = 'Fetch failed';
             subHint.style.color = '#f05050';
             subCard.classList.remove('valid');
             subCard.classList.add('invalid');
             setSubError(subErrorText(e));
+            if (subIsBlockedError(e)) setSubCorsGuide(raw);
         }
     }
 
@@ -2546,6 +2627,14 @@
         onSubInput();
     });
     btnSub.addEventListener('click', onSub);
+    btnOpenSub.addEventListener('click', () => {
+        const v = subUrl.value.trim();
+        if (subValidate(v) === 'link') openSubLink(v);
+    });
+    subCard.addEventListener('dragenter', onSubDragOver);
+    subCard.addEventListener('dragover', onSubDragOver);
+    subCard.addEventListener('dragleave', onSubDragLeave);
+    subCard.addEventListener('drop', onSubDrop);
     // Re-run the enhancement when the shared options change (selects vs textareas).
     [enhancerFp, enhancerFmPreset].forEach(el => el.addEventListener('change', scheduleSubRender));
     [enhancerCs, enhancerFm].forEach(el => el.addEventListener('input', scheduleSubRender));
