@@ -2119,7 +2119,8 @@
             // No streaming support — fall back to buffering the whole body.
             // Without progress events a slow-but-active transfer cannot be told
             // apart from a stalled one, so keep resetting the idle timer and
-            // rely on the total-timeout backstop to end true stalls.
+            // rely on the total-timeout backstop to end true stalls (worst case
+            // for a stall here is the 5-minute total timeout, not the idle one).
             if (!res.body || typeof res.body.getReader !== 'function') {
                 const keepAlive = setInterval(kick, Math.min(10000, SUB_IDLE_MS));
                 try {
@@ -2223,12 +2224,25 @@
     // Accept a saved subscription file (.txt) dropped onto the card. Everything
     // stays local: FileReader never uploads anything.
     const SUB_MAX_FILE_BYTES = 2 * 1024 * 1024;
+
+    // A drop error must not leave a previous output on screen either.
+    function onSubDropError(text) {
+        setSubError(text);
+        subOutputSection.style.display = 'none';
+        subOutputUrl.textContent = '';
+        subOutputRemark.textContent = '';
+        subResults = [];
+        subRawConfigs = [];
+    }
     function onSubDragOver(e) {
         e.preventDefault();
         subCard.classList.add('dragover');
     }
     function onSubDragLeave(e) {
         e.preventDefault();
+        // dragleave also fires when moving between children of the card —
+        // only clear the highlight when the pointer truly leaves it.
+        if (e.relatedTarget && subCard.contains(e.relatedTarget)) return;
         subCard.classList.remove('dragover');
     }
     function onSubDrop(e) {
@@ -2237,7 +2251,7 @@
         const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
         if (!file) return;
         if (file.size > SUB_MAX_FILE_BYTES) {
-            setSubError('File too large — subscription files are usually a few hundred KB at most.');
+            onSubDropError('That file is too large — drop a plain-text subscription file (.txt), usually a few hundred KB at most.');
             return;
         }
         const reader = new FileReader();
@@ -2246,7 +2260,7 @@
             onSubInput();
             subUrl.focus();
         };
-        reader.onerror = () => setSubError('Could not read that file.');
+        reader.onerror = () => onSubDropError('Could not read that file.');
         reader.readAsText(file);
     }
 
@@ -2262,6 +2276,9 @@
     // answer, and the CORS case gets a message that points at the paste fallback.
     function subErrorText(e) {
         const msg = (e && e.message) || String(e);
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+            return 'You appear to be offline — check your connection and try again.';
+        }
         if (e && e.name === 'SubTotalTimeout') {
             return 'The download took longer than ' + Math.round(SUB_TOTAL_MS / 60000) +
                 ' minutes without finishing — the provider is too slow. Retry, or paste the subscription contents into this box.';
@@ -2407,7 +2424,7 @@
 
         if (subMode === 'proxy') {
             subMode = null;
-            setSubError('That looks like an HTTP proxy address, not a subscription link. Only VLESS and Trojan URLs can be enhanced — paste one of those, or a subscription link.');
+            setSubError('That looks like an HTTP proxy address, not a subscription link. Only VLESS and Trojan URLs can be enhanced — paste one of those, or a subscription link. If this is actually a subscription served at a bare address with no path, open it in a new tab and paste its contents here instead.');
             btnSub.disabled = true;
             subHint.textContent = 'Paste a subscription link or a VLESS/Trojan URL';
             return;
@@ -2570,15 +2587,23 @@
         subHint.textContent = 'Fetching…';
         subHint.style.color = '';
         // A retry without an edit must not keep the previous error — or the
-        // previous red card styling — on screen.
+        // previous red card styling — on screen. The old output is hidden too,
+        // so a failed retry cannot leave stale configs next to the new error.
         subParsed.textContent = '';
         subCard.classList.remove('invalid');
+        subOutputSection.style.display = 'none';
+        subResults = [];
+        subRawConfigs = [];
 
         try {
             const body = await fetchSubBody(raw, onSubProgress);
             onSubFetched(body, raw);
         } catch (e) {
             subBusy = false;
+            if (subProgressTimer) {
+                clearTimeout(subProgressTimer);
+                subProgressTimer = null;
+            }
             if (subUrl.value.trim() !== raw) {
                 onSubStale();
                 return;
@@ -2590,7 +2615,7 @@
             subCard.classList.remove('valid');
             subCard.classList.add('invalid');
             setSubError(subErrorText(e));
-            if (subIsBlockedError(e)) setSubCorsGuide(raw);
+            if (subIsBlockedError(e) && (typeof navigator === 'undefined' || navigator.onLine !== false)) setSubCorsGuide(raw);
         }
     }
 
