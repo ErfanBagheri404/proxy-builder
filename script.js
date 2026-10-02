@@ -2013,7 +2013,6 @@
     // ===== Subscription Import =====
 
     const subUrl = document.getElementById('sub-url');
-    const subProxy = document.getElementById('sub-proxy');
     const subClear = document.getElementById('sub-clear');
     const subParsed = document.getElementById('sub-parsed');
     const subProtocolTag = document.getElementById('sub-protocol-tag');
@@ -2026,18 +2025,6 @@
     const btnCopySub = document.getElementById('btn-copy-sub');
     const btnDownloadSub = document.getElementById('btn-download-sub');
     const btnDownloadSubB64 = document.getElementById('btn-download-sub-b64');
-
-    // Direct fetch is always tried first; the selected CORS proxy is only a
-    // fallback for providers that send no CORS headers. Several of these
-    // services are flaky or key-walled — see the note under the tab.
-    const CORS_PROXIES = [
-        { id: 'direct', name: 'Direct only (no proxy)', wrap: null },
-        { id: 'allorigins', name: 'allorigins.win', wrap: u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u) },
-        { id: 'codetabs', name: 'codetabs.com', wrap: u => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u) },
-        { id: 'corsproxy', name: 'corsproxy.io (needs API key)', wrap: u => 'https://corsproxy.io/?url=' + encodeURIComponent(u) },
-        { id: 'cors-anywhere', name: 'cors-anywhere', wrap: u => 'https://cors-anywhere.herokuapp.com/' + u },
-        { id: 'thingproxy', name: 'thingproxy', wrap: u => 'https://thingproxy.freeboard.io/fetch/' + u }
-    ];
 
     // Bodies can be several hundred KB and arrive slowly, so we abort on
     // silence rather than after a fixed total time.
@@ -2140,25 +2127,12 @@
         }
     }
 
-    // The direct fetch is the only route that keeps the subscription token local,
-    // so it is tried first. A proxy is used only when the failure was a transport
-    // failure (TypeError = CORS/DNS, AbortError = timeout): an HTTP 4xx/5xx from
-    // the provider is a real answer, and re-sending it through a proxy would
-    // double the request and replace a clear error with a vague one.
+    // Direct-only fetching: the subscription URL (token included) is sent to the
+    // provider itself and never to a third-party proxy. Providers without CORS
+    // headers cannot be fetched from a browser — the error message below points
+    // at the paste-contents fallback instead.
     async function fetchSubBody(url, onProgress) {
-        const proxy = CORS_PROXIES.find(p => p.id === subProxy.value);
-        try {
-            return await fetchTextWithProgress(url, onProgress);
-        } catch (directError) {
-            const transport = directError && (directError.name === 'TypeError' || directError.name === 'AbortError');
-            if (!transport || !proxy || !proxy.wrap) throw directError;
-            try {
-                return await fetchTextWithProgress(proxy.wrap(url), onProgress);
-            } catch (proxyError) {
-                // The proxy is the more likely culprit here, so report its error.
-                throw proxyError;
-            }
-        }
+        return await fetchTextWithProgress(url, onProgress);
     }
 
     function setSubError(text) {
@@ -2169,9 +2143,8 @@
         subParsed.appendChild(err);
     }
 
-    // Reports the transport error honestly. A 4xx/5xx from the provider is a real
-    // answer and must not be retried through a proxy (the proxy would only mask
-    // it), and the CORS case gets a message that points at the paste fallback.
+    // Reports the fetch error honestly. A 4xx/5xx from the provider is a real
+    // answer, and the CORS case gets a message that points at the paste fallback.
     function subErrorText(e, route) {
         const msg = (e && e.message) || String(e);
         if (e && e.name === 'AbortError') {

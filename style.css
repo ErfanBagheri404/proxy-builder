@@ -547,28 +547,14 @@ body {
     font-size: 0.8rem;
 }
 
-/* Subscription field: grows to fit a pasted config list, like the Enhancer inputs. */
+/* Subscription field: fixed two-row box with horizontal scroll for long lines,
+   like the Enhancer inputs. */
 .sub-url-input {
     min-height: 72px;
     padding-right: 40px;
     white-space: pre;
     overflow-wrap: normal;
     overflow-x: auto;
-}
-
-.sub-proxy-warning {
-    margin: 10px 0 0;
-    padding: 8px 10px;
-    background: rgba(255, 140, 66, 0.08);
-    border: 1px solid rgba(255, 140, 66, 0.22);
-    border-radius: var(--radius-sm);
-    color: #ff8c42;
-    font-size: 0.74rem;
-    line-height: 1.5;
-}
-
-.sub-proxy-warning strong {
-    color: #ffa36b;
 }
 
 .btn-clear {

@@ -516,20 +516,6 @@
                         spellcheck="false" autocomplete="off"></textarea>
                     <button class="btn-clear" id="sub-clear" title="Clear">✕</button>
                 </div>
-                <div class="setting-item" style="margin-top:14px;">
-                    <label for="sub-proxy">Fetch Route</label>
-                    <select id="sub-proxy">
-                        <option value="direct" selected>Direct only (fastest, CORS-permitting providers)</option>
-                        <option value="allorigins">allorigins.win (often down)</option>
-                        <option value="codetabs">codetabs.com (often down)</option>
-                        <option value="corsproxy">corsproxy.io (needs API key)</option>
-                        <option value="cors-anywhere">cors-anywhere (needs demo opt-in)</option>
-                        <option value="thingproxy">thingproxy</option>
-                    </select>
-                </div>
-                <p class="sub-proxy-warning">⚠️ A Fetch Route other than <strong>Direct only</strong> sends your
-                    full subscription URL — including any secret token — to a third-party server. Use it only with a
-                    link you are willing to hand to that server.</p>
                 <div class="parsed-info" id="sub-parsed"></div>
             </div>
 
