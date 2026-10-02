@@ -2145,7 +2145,7 @@
 
     // Reports the fetch error honestly. A 4xx/5xx from the provider is a real
     // answer, and the CORS case gets a message that points at the paste fallback.
-    function subErrorText(e, route) {
+    function subErrorText(e) {
         const msg = (e && e.message) || String(e);
         if (e && e.name === 'AbortError') {
             return 'The connection went silent for ' + Math.round(SUB_IDLE_MS / 1000) +
@@ -2160,7 +2160,10 @@
                         ? 'That subscription link does not exist.'
                         : 'The subscription URL is wrong or the server is refusing it.');
         }
-        if (/Failed to fetch|NetworkError|Load failed/i.test(msg)) {
+        // Transport failures surface as TypeError in every browser, but the
+        // message text varies ('Failed to fetch', 'NetworkError', 'Load failed',
+        // or even empty), so match the name first and the text only as fallback.
+        if ((e && e.name === 'TypeError') || /Failed to fetch|NetworkError|Load failed/i.test(msg)) {
             return 'This provider blocks browser access (it sends no CORS headers), so the direct fetch ' +
                 'was refused. Open the link in a new tab and paste its contents into this box — that always works.';
         }
@@ -2183,10 +2186,27 @@
         return !!whole && extractLines(whole).some(l => SUB_SCHEME.test(l));
     }
 
-    // Returns 'link', 'content' or null for input that is neither. Both the input
-    // handler and the post-fetch re-validation go through this, so a field that
-    // was replaced with junk mid-fetch can never re-enable the button.
+    // A single http(s) URL with no path and an explicit port is far more likely
+    // an HTTP proxy address than a subscription link (those carry a path or
+    // token). Fetching a proxy port would only fail confusingly, so reject it
+    // up front with guidance instead of treating it as a link to fetch.
+    function subLooksLikeProxy(v) {
+        if (/\s/.test(v) || !/^https?:\/\/\S+$/i.test(v)) return false;
+        let u = null;
+        try {
+            u = new URL(v);
+        } catch (e) {
+            return false;
+        }
+        return !!u.hostname && !!u.port && (u.pathname === '/' || u.pathname === '');
+    }
+
+    // Returns 'link', 'content', 'proxy' or null for input that is none of those.
+    // Both the input handler and the post-fetch re-validation go through this,
+    // so a field that was replaced with junk mid-fetch can never re-enable
+    // the button.
     function subValidate(v) {
+        if (subLooksLikeProxy(v)) return 'proxy';
         if (subIsLink(v)) {
             let u = null;
             try {
@@ -2197,6 +2217,11 @@
             return u && u.hostname ? 'link' : null;
         }
         return subLooksLikeContent(v) ? 'content' : null;
+    }
+
+    // Verdicts that allow the Fetch button to run.
+    function subCanRun(mode) {
+        return mode === 'link' || mode === 'content';
     }
 
     function subShowInfo(label, value) {
@@ -2254,6 +2279,14 @@
             btnSub.disabled = false;
             subHint.textContent = 'Ready to enhance pasted content';
             subHint.style.color = '#4cdf86';
+            return;
+        }
+
+        if (subMode === 'proxy') {
+            subMode = null;
+            setSubError('That looks like an HTTP proxy address, not a subscription link. Only VLESS and Trojan URLs can be enhanced — paste one of those, or a subscription link.');
+            btnSub.disabled = true;
+            subHint.textContent = 'Paste a subscription link or a VLESS/Trojan URL';
             return;
         }
 
@@ -2351,7 +2384,7 @@
         // previous output, so there is nothing to show until the next fetch.
         if (subUrl.value.trim() !== fetchRaw) {
             subRawConfigs = [];
-            btnSub.disabled = !subValidate(subUrl.value.trim());
+            btnSub.disabled = !subCanRun(subValidate(subUrl.value.trim()));
             subHint.textContent = 'Input changed during the fetch — fetch again';
             subHint.style.color = '#f0c040';
             return;
@@ -2385,7 +2418,7 @@
         // Validate freshly rather than trusting the cached subMode: the field may
         // have changed since the last input event.
         subMode = subValidate(raw);
-        if (!subMode) {
+        if (!subCanRun(subMode)) {
             onSubInput();
             return;
         }
