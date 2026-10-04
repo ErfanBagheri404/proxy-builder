@@ -152,6 +152,29 @@
         return ech.split(/[+\s]/)[0].trim();
     }
 
+    // Default DNS appended to a bare ECH domain, BPB-style:
+    // "cloudflare-ech.com" becomes "cloudflare-ech.com+udp://8.8.8.8".
+    const ECH_DNS_DEFAULT = 'udp://8.8.8.8';
+
+    // Bare ECH domain (just a hostname, no resolver part). Dots never appear
+    // in standard/base64url alphabets, so a dot-containing value without
+    // '://', '+', '/' or '=' cannot be a base64 ECHConfigList.
+    function isBareEchDomain(value) {
+        if (!value || value.includes('://')) return false;
+        if (/[\s+=/]/.test(value)) return false;
+        return /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(value);
+    }
+
+    // Normalize the enhancer textarea value before writing the URL param:
+    // bare domains are completed with the default DNS, full DNS-query forms
+    // and raw base64 pass through untouched, empty stays empty (skip ech).
+    function normalizeEchInput(raw) {
+        const value = (raw || '').trim();
+        if (!value) return '';
+        if (isBareEchDomain(value)) return value + '+' + ECH_DNS_DEFAULT;
+        return value;
+    }
+
     // ===== URL Parser =====
     function extractLines(raw) {
         if (!raw) return [];
@@ -712,11 +735,12 @@
             }
             // ECH config list. Xray accepts either "domain+udp://1.1.1.1" (query
             // the ECHConfigList over DNS from that server) or a raw base64
-            // ECHConfigList. Setting the raw value is all that is needed:
-            // URLSearchParams serializes the '+' separator as %2B, which is what
-            // Xray expects, and no literal '+' survives to be hit by the
-            // '+' -> '%20' rewrite below.
-            const ech = enhancerEch.value.trim();
+            // ECHConfigList. A bare domain ("cloudflare-ech.com") is completed
+            // with the default DNS, BPB-style. Setting the value is all that
+            // is needed: URLSearchParams serializes the '+' separator as %2B,
+            // which is what Xray expects, and no literal '+' survives to be
+            // hit by the '+' -> '%20' rewrite below.
+            const ech = normalizeEchInput(enhancerEch.value);
             if (ech) {
                 params.set('ech', ech);
             }
