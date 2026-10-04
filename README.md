@@ -44,6 +44,7 @@ All processing happens in your browser. No data is sent to any server — fetchi
 - **Blocked Providers**: If the provider sends no CORS headers, the error shows 3 quick steps and an **Open link** button opens the URL in a new tab for copying.
 - **Paste or Drop**: A pasted config list/base64 blob — or a dropped saved `.txt` file — is enhanced with no fetch at all.
 - **Shared Options**: Uses the same `fp` / `cs` / `fm` values as the Fragment + Fingerprint tab; the server override is ignored (each config keeps its own address).
+- **No ECH here**: ECH is applied only in the **ECH** tab — subscription entries never get an `ech` parameter.
 - **Export**: Copy to clipboard, download as `.txt` (one per line) or base64 `.txt`.
 - **Protocol Support**: **VLESS** and **Trojan** are enhanced; other protocols found inside are counted as skipped.
 

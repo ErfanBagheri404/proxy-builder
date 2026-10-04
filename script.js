@@ -916,20 +916,25 @@
             }
         }
 
-        // Fingerprint — always applied when selected value is non-empty
+        // Fingerprint — applied when set; 'none'/empty removes an existing value
+        // so "clear to skip" also strips a previously-enhanced URL.
         const fp = echFp.value.trim();
         if (fp && fp !== 'none') {
             params.set('fp', fp);
+        } else {
+            params.delete('fp');
         }
 
         // ECH config list — only meaningful with TLS. A bare domain
         // ("cloudflare-ech.com") is completed with the default DNS, BPB-style;
         // URLSearchParams serializes the '+' separator as %2B, which is what
-        // Xray expects.
+        // Xray expects. Empty removes an existing value ("clear to skip").
         if (security === 'tls') {
             const ech = normalizeEchInput(echText.value);
             if (ech) {
                 params.set('ech', ech);
+            } else {
+                params.delete('ech');
             }
         }
 
@@ -1030,11 +1035,13 @@
         }
 
         const enhancedUrls = [];
+        let firstEnhanced = null;
         lines.forEach(line => {
             const p = parseProxyURLSingle(line);
             if (p && !p.error && (p.protocol === 'vless' || p.protocol === 'trojan')) {
                 const res = enhanceEchURL(line);
                 if (res && res.url) {
+                    if (!firstEnhanced) firstEnhanced = p;
                     enhancedUrls.push(res.url);
                 }
             }
@@ -1046,7 +1053,7 @@
         }
 
         const count = enhancedUrls.length;
-        const firstParsed = parseProxyURLSingle(lines[0]);
+        const firstParsed = firstEnhanced;
         const remark = count === 1
             ? (firstParsed && firstParsed.remark
                 ? `✨ ${firstParsed.protocol.toUpperCase()} ${firstParsed.server}:${firstParsed.port} | enhanced`
@@ -3133,9 +3140,6 @@
     if (echPreset) {
         echPreset.addEventListener('change', () => {
             echText.value = ECH_PRESETS[echPreset.value] || '';
-            if (echOutputSection.style.display !== 'none' && echInput.value.trim()) {
-                onEchEnhance();
-            }
         });
     }
     echInput.addEventListener('input', onEchInput);
