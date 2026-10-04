@@ -145,9 +145,11 @@
     // "cloudflare-ech.com+udp://1.1.1.1") carries a queryable domain.
     // A raw base64 ECHConfigList can itself contain '+' (base64 alphabet),
     // so it must not be split — return '' so callers fall back to sni/server.
+    // Split on whitespace too: a badly-encoded external link may carry a
+    // literal '+' which URLSearchParams decodes to a space.
     function getEchQueryServer(ech) {
         if (!ech || !ech.includes('://')) return '';
-        return ech.split('+')[0].trim();
+        return ech.split(/[+\s]/)[0].trim();
     }
 
     // ===== URL Parser =====
