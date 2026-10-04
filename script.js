@@ -140,6 +140,16 @@
         }
     }
 
+    // ECH query server: only the DNS-query form "domain+dns-server"
+    // (e.g. "cloudflare-ech.com+https://dns.alidns.com/dns-query" or
+    // "cloudflare-ech.com+udp://1.1.1.1") carries a queryable domain.
+    // A raw base64 ECHConfigList can itself contain '+' (base64 alphabet),
+    // so it must not be split — return '' so callers fall back to sni/server.
+    function getEchQueryServer(ech) {
+        if (!ech || !ech.includes('://')) return '';
+        return ech.split('+')[0].trim();
+    }
+
     // ===== URL Parser =====
     function extractLines(raw) {
         if (!raw) return [];
@@ -1252,7 +1262,7 @@
                 cfg.host.split(',').forEach(h => bypassDomains.add(h.trim()));
             }
             if (cfg.ech) {
-                const echDomain = cfg.ech.split('+')[0];
+                const echDomain = getEchQueryServer(cfg.ech);
                 if (echDomain) bypassDomains.add(echDomain);
             }
         });
@@ -1658,7 +1668,7 @@
 
             // ECH — param format: "query_server_name+dns_server" e.g. "workers.dev+udp://8.8.8.8"
             if (params.ech) {
-                const echQueryServer = params.ech.split('+')[0];
+                const echQueryServer = getEchQueryServer(params.ech);
                 tls.record_fragment = false;
                 tls.ech = {
                     enabled: true,
