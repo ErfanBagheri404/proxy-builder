@@ -2,15 +2,26 @@
 
 🌐 **[فارسی](README-fa.md)** | [English](README.md)
 
-A powerful, standalone web application with three tools:
+A powerful, standalone web application with four tools:
 
-1. **🧬 Fragment + Fingerprint** — enhance a **VLESS** or **Trojan** URL by injecting `cs` (cipher suites), `fm` (fragment mask) and `fp` (TLS fingerprint) parameters, plus a server (IP/domain) override — producing a link ready to import into your own client.
-2. **🔗 Chain Builder** — chain two proxy configurations into a single **Xray** or **Sing-box** JSON configuration for enhanced connection stability and fixed IP masking.
-3. **📥 Subscription Import** — fetch a subscription link (or paste its contents) to decode it (plain or base64) and batch-enhance every **VLESS**/**Trojan** config inside, with copy/`.txt`/base64 export.
+1. **🛡️ ECH** (default tab) — enhance a **VLESS** or **Trojan** URL by injecting `fp` (TLS fingerprint, default `chrome`) and `ech` (ECH Config List) parameters, plus a server (IP/domain) override — producing a link ready to import into your own client.
+2. **🧬 Fragment + Fingerprint** — enhance a **VLESS** or **Trojan** URL by injecting `cs` (cipher suites), `fm` (fragment mask) and `fp` (TLS fingerprint) parameters, plus a server (IP/domain) override — producing a link ready to import into your own client.
+3. **🔗 Chain Builder** — chain two proxy configurations into a single **Xray** or **Sing-box** JSON configuration for enhanced connection stability and fixed IP masking.
+4. **📥 Subscription Import** — fetch a subscription link (or paste its contents) to decode it (plain or base64) and batch-enhance every **VLESS**/**Trojan** config inside, with copy/`.txt`/base64 export.
 
 All processing happens in your browser. No data is sent to any server — fetching a subscription link contacts only the provider URL you entered, and pasted or dropped content never leaves your browser.
 
 ## 🚀 Features
+
+### 🛡️ ECH
+- **Paste & Enhance**: Paste single or multiple `vless://` or `trojan://` URLs (one per line) and get enhanced links with `fp` and `ech` parameters added.
+- **Server Override**: The server (IP/domain) field is auto-filled from the URL for a single config and is user-editable. With multiple configs the field stays empty and only applies to all configs if you type a custom value (supports IPv4, IPv6 and domains).
+- **Fingerprint**: Default `chrome`, with `unsafe`, `firefox`, `safari`, `random` and `none` options.
+- **ECH presets**: The `ECH Server` selector ships prefilled with `cloudflare-ech.com + Cloudflare udp://1.1.1.1`; alternatives include AliDNS DoH and other public ECH servers. The field stays editable for manual tweaks.
+- **Bare domains**: Typing just a domain (e.g. `cloudflare-ech.com`) auto-adds `+udp://8.8.8.8`; a base64 ECHConfigList passes through untouched.
+- **TLS-aware**: `ech` is only added when the config uses `tls` security. Clear the field to skip it.
+- **One-click Copy**: Copy the enhanced URL straight to the clipboard.
+- **Protocol Support**: **VLESS** and **Trojan**.
 
 ### 🧬 Fragment + Fingerprint
 - **Paste & Enhance**: Paste single or multiple `vless://` or `trojan://` URLs (one per line) and get enhanced links with `cs`, `fm` and `fp` parameters added.
@@ -55,6 +66,12 @@ The application generates a configuration that routes your traffic in this seque
 This ensures that your final outgoing IP address is that of the **Chain Proxy**, providing a consistent identity for the websites you visit.
 
 ## 🛠️ Usage
+
+### 🛡️ ECH
+1. Open the app — the **ECH** tab is active by default.
+2. Paste your **VLESS** or **Trojan** URL.
+3. Adjust the options if needed: server override (auto-filled from the URL), fingerprint (default `chrome`), ECH server preset or a manual value (bare domain auto-adds `+udp://8.8.8.8`).
+4. Click **"Enhance URL"** and copy the resulting link — import it into your client (Xray core, Sing-box 1.13.0+, or Clash 1.19.20+).
 
 ### 🧬 Fragment + Fingerprint
 1. Switch to the **Fragment + Fingerprint** tab.

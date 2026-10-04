@@ -69,6 +69,7 @@
     const viewChain = document.getElementById('view-chain');
     const viewEnhancer = document.getElementById('view-enhancer');
     const viewSub = document.getElementById('view-sub');
+    const viewEch = document.getElementById('view-ech');
 
     // Enhancer elements
     const enhancerInput = document.getElementById('enhancer-input');
@@ -79,8 +80,6 @@
     const enhancerCs = document.getElementById('enhancer-cs');
     const enhancerFm = document.getElementById('enhancer-fm');
     const enhancerFmPreset = document.getElementById('enhancer-fm-preset');
-    const enhancerEch = document.getElementById('enhancer-ech');
-    const enhancerEchPreset = document.getElementById('enhancer-ech-preset');
     const enhancerServer = document.getElementById('enhancer-server');
     const btnEnhance = document.getElementById('btn-enhance');
     const enhanceHint = document.getElementById('enhance-hint');
@@ -90,11 +89,29 @@
     const btnCopyEnhancer = document.getElementById('btn-copy-enhancer');
     const enhancerCard = document.getElementById('enhancer-card');
 
+    // ECH tab elements (own card — not shared with other tabs)
+    const echInput = document.getElementById('ech-input');
+    const echClear = document.getElementById('ech-clear');
+    const echParsed = document.getElementById('ech-parsed');
+    const echProtocolTag = document.getElementById('ech-protocol-tag');
+    const echServer = document.getElementById('ech-server');
+    const echFp = document.getElementById('ech-fp');
+    const echPreset = document.getElementById('ech-preset');
+    const echText = document.getElementById('ech-text');
+    const btnEchEnhance = document.getElementById('btn-ech-enhance');
+    const echHint = document.getElementById('ech-hint');
+    const echOutputSection = document.getElementById('ech-output-section');
+    const echOutputUrl = document.getElementById('ech-output-url');
+    const echOutputRemark = document.getElementById('ech-output-remark');
+    const btnCopyEch = document.getElementById('btn-copy-ech');
+    const echCard = document.getElementById('ech-card');
+
     let parsedConfig1 = null;
     let parsedConfig2 = null;
     let sshMode1 = false;
     let sshMode2 = false;
     let lastAutoServer = '';
+    let lastAutoEchServer = '';
 
     // ===== Base64 Helpers =====
     function safeAtob(str) {
@@ -723,7 +740,7 @@
             params.set('fp', fp);
         }
 
-        // Cipher suites, fragment mask & ECH — only meaningful with TLS
+        // Cipher suites & fragment mask — only meaningful with TLS
         if (security === 'tls') {
             const cs = enhancerCs.value.trim();
             if (cs) {
@@ -732,17 +749,6 @@
             const fm = enhancerFm.value.trim();
             if (fm) {
                 params.set('fm', fm);
-            }
-            // ECH config list. Xray accepts either "domain+udp://1.1.1.1" (query
-            // the ECHConfigList over DNS from that server) or a raw base64
-            // ECHConfigList. A bare domain ("cloudflare-ech.com") is completed
-            // with the default DNS, BPB-style. Setting the value is all that
-            // is needed: URLSearchParams serializes the '+' separator as %2B,
-            // which is what Xray expects, and no literal '+' survives to be
-            // hit by the '+' -> '%20' rewrite below.
-            const ech = normalizeEchInput(enhancerEch.value);
-            if (ech) {
-                params.set('ech', ech);
             }
         }
 
@@ -873,6 +879,184 @@
         enhancerOutputUrl.textContent = enhancedUrls.join('\n\n');
         enhancerOutputSection.style.display = 'block';
         enhancerOutputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // ===== ECH Enhancer (own tab — fp + ech only) =====
+
+    function enhanceEchURL(raw) {
+        const url = raw.trim();
+        if (!url) return { error: 'No URL provided' };
+        // Case-insensitive on purpose — parseProxyURLSingle() accepts VLESS://
+        // as well, and the bulk path would otherwise count those as "skipped".
+        const scheme = url.slice(0, url.indexOf('://')).toLowerCase();
+        if (scheme !== 'vless' && scheme !== 'trojan') {
+            return { error: 'Only VLESS and Trojan URLs are supported' };
+        }
+
+        let u;
+        try {
+            u = new URL(url);
+        } catch (e) {
+            return { error: 'Failed to parse URL: ' + e.message };
+        }
+
+        const params = u.searchParams;
+        const security = params.get('security') || 'none';
+
+        // Server override — auto-filled from URL, user-editable, empty keeps original.
+        const server = echServer.value.trim();
+        if (server) {
+            const host = server.includes(':') && !server.startsWith('[')
+                ? '[' + server + ']'
+                : server;
+            try {
+                u.hostname = host;
+            } catch (e) {
+                return { error: 'Invalid server address: ' + e.message };
+            }
+        }
+
+        // Fingerprint — always applied when selected value is non-empty
+        const fp = echFp.value.trim();
+        if (fp && fp !== 'none') {
+            params.set('fp', fp);
+        }
+
+        // ECH config list — only meaningful with TLS. A bare domain
+        // ("cloudflare-ech.com") is completed with the default DNS, BPB-style;
+        // URLSearchParams serializes the '+' separator as %2B, which is what
+        // Xray expects.
+        if (security === 'tls') {
+            const ech = normalizeEchInput(echText.value);
+            if (ech) {
+                params.set('ech', ech);
+            }
+        }
+
+        // URLSearchParams encodes spaces as '+', but v2ray-style clients use '%20'
+        u.search = u.search.replace(/\+/g, '%20');
+
+        return { url: u.toString() };
+    }
+
+    function onEchInput() {
+        const val = echInput.value.trim();
+        const lines = extractLines(val);
+        let parsedList = [];
+        let unsupportedCount = 0;
+        let invalidCount = 0;
+
+        if (lines.length > 0) {
+            lines.forEach(line => {
+                const p = parseProxyURLSingle(line);
+                if (p && !p.error) {
+                    if (p.protocol === 'vless' || p.protocol === 'trojan') {
+                        parsedList.push(p);
+                    } else {
+                        unsupportedCount++;
+                    }
+                } else {
+                    invalidCount++;
+                }
+            });
+        }
+
+        // Auto-fill the server field from the URL — only for a single config.
+        if (parsedList.length === 1) {
+            const firstServer = parsedList[0].server || '';
+            const current = echServer.value.trim();
+            if (!current || current === lastAutoEchServer || current === firstServer) {
+                echServer.value = firstServer;
+                lastAutoEchServer = firstServer;
+            }
+        } else if (parsedList.length > 1) {
+            const current = echServer.value.trim();
+            if (!current || current === lastAutoEchServer) {
+                echServer.value = '';
+                lastAutoEchServer = '';
+            }
+        } else if (!echServer.value.trim()) {
+            lastAutoEchServer = '';
+        }
+
+        if (lines.length > 0) {
+            if (parsedList.length > 0) {
+                renderParsedInfo(parsedList.length === 1 ? parsedList[0] : parsedList, echParsed);
+                const protocols = Array.from(new Set(parsedList.map(p => p.protocol)));
+                if (protocols.length === 1) {
+                    updateProtocolTag(echProtocolTag, parsedList[0]);
+                } else {
+                    echProtocolTag.textContent = 'MULTI';
+                    echProtocolTag.classList.add('active');
+                    echProtocolTag.style.color = '#7c5cff';
+                    echProtocolTag.style.borderColor = '#7c5cff4d';
+                    echProtocolTag.style.background = '#7c5cff1a';
+                }
+            } else {
+                renderParsedInfo({
+                    error: unsupportedCount > 0
+                        ? 'Only VLESS and Trojan URLs are supported'
+                        : 'Failed to parse URL'
+                }, echParsed);
+                updateProtocolTag(echProtocolTag, null);
+            }
+        } else {
+            renderParsedInfo(null, echParsed);
+            updateProtocolTag(echProtocolTag, null);
+        }
+
+        echCard.classList.remove('valid', 'invalid');
+        if (lines.length > 0 && parsedList.length > 0) {
+            echCard.classList.add('valid');
+        } else if (lines.length > 0) {
+            echCard.classList.add('invalid');
+        }
+
+        const count = parsedList.length;
+        btnEchEnhance.disabled = count === 0;
+        btnEchEnhance.innerHTML = `<span class="btn-icon">✨</span> Enhance ${count > 1 ? count + ' URLs' : 'URL'}`;
+        echHint.textContent = count > 0
+            ? `Ready to enhance ${count} URL${count > 1 ? 's' : ''}!`
+            : 'Paste VLESS or Trojan URL(s) above to enable';
+        echHint.style.color = count > 0 ? '#4cdf86' : '';
+    }
+
+    function onEchEnhance() {
+        const val = echInput.value.trim();
+        const lines = extractLines(val);
+        if (lines.length === 0) {
+            echOutputSection.style.display = 'none';
+            return;
+        }
+
+        const enhancedUrls = [];
+        lines.forEach(line => {
+            const p = parseProxyURLSingle(line);
+            if (p && !p.error && (p.protocol === 'vless' || p.protocol === 'trojan')) {
+                const res = enhanceEchURL(line);
+                if (res && res.url) {
+                    enhancedUrls.push(res.url);
+                }
+            }
+        });
+
+        if (enhancedUrls.length === 0) {
+            echOutputSection.style.display = 'none';
+            return;
+        }
+
+        const count = enhancedUrls.length;
+        const firstParsed = parseProxyURLSingle(lines[0]);
+        const remark = count === 1
+            ? (firstParsed && firstParsed.remark
+                ? `✨ ${firstParsed.protocol.toUpperCase()} ${firstParsed.server}:${firstParsed.port} | enhanced`
+                : '✨ Enhanced')
+            : `✨ Enhanced ${count} URLs`;
+
+        echOutputRemark.textContent = remark;
+        echOutputUrl.textContent = enhancedUrls.join('\n\n');
+        echOutputSection.style.display = 'block';
+        echOutputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
     // ===== Xray Outbound Builders =====
@@ -2710,7 +2894,7 @@
     subCard.addEventListener('drop', onSubDrop);
     // Re-run the enhancement when the shared options change (selects vs textareas).
     [enhancerFp, enhancerFmPreset].forEach(el => el.addEventListener('change', scheduleSubRender));
-    [enhancerCs, enhancerFm, enhancerEch].forEach(el => el.addEventListener('input', scheduleSubRender));
+    [enhancerCs, enhancerFm].forEach(el => el.addEventListener('input', scheduleSubRender));
     btnCopySub.addEventListener('click', () => onCopySub(btnCopySub, subResults.join('\n')));
     btnDownloadSub.addEventListener('click', () => {
         if (!subResults.length) return;
@@ -2743,6 +2927,7 @@
         viewChain.style.display = viewName === 'chain' ? '' : 'none';
         viewEnhancer.style.display = viewName === 'enhancer' ? '' : 'none';
         viewSub.style.display = viewName === 'sub' ? '' : 'none';
+        viewEch.style.display = viewName === 'ech' ? '' : 'none';
 
         const optionsTarget = viewName === 'sub' ? subOptionsSlot : enhancerOptionsSlot;
         if (enhancerOptionsCard && optionsTarget) optionsTarget.appendChild(enhancerOptionsCard);
@@ -2769,8 +2954,8 @@
         }
     }
 
-    // Apply badge visibility for the initial view (enhancer is active by default)
-    switchMainTab('enhancer');
+    // Apply badge visibility for the initial view (ech is active by default)
+    switchMainTab('ech');
 
 
     function switchSubTab(subTabName) {
@@ -2934,9 +3119,9 @@
             }
         });
     }
-    // ECH presets — same contract as the fragment presets: selecting one overwrites
-    // the textarea, so anything typed by hand afterwards is preserved. 'none' only
-    // clears it; it never writes a placeholder value.
+    // ECH presets (own tab) — selecting one overwrites the textarea, so
+    // anything typed by hand afterwards is preserved. 'none' only clears it.
+    // The textarea ships prefilled with the default (cf-udp) preset value.
     const ECH_PRESETS = {
         'cf-alidns': 'cloudflare-ech.com+https://dns.alidns.com/dns-query',
         'cf-udp': 'cloudflare-ech.com+udp://1.1.1.1',
@@ -2945,12 +3130,33 @@
         'sspcc-udp': 'ech.sspcccdn.xyz+udp://1.1.1.1',
         'ipgs-udp': 'ip.gs+udp://8.8.8.8'
     };
-    if (enhancerEchPreset) {
-        enhancerEchPreset.addEventListener('change', () => {
-            enhancerEch.value = ECH_PRESETS[enhancerEchPreset.value] || '';
-            scheduleSubRender();
+    if (echPreset) {
+        echPreset.addEventListener('change', () => {
+            echText.value = ECH_PRESETS[echPreset.value] || '';
+            if (echOutputSection.style.display !== 'none' && echInput.value.trim()) {
+                onEchEnhance();
+            }
         });
     }
+    echInput.addEventListener('input', onEchInput);
+    echInput.addEventListener('paste', () => setTimeout(onEchInput, 50));
+    echClear.addEventListener('click', () => {
+        echInput.value = '';
+        onEchInput();
+    });
+    btnEchEnhance.addEventListener('click', onEchEnhance);
+    btnCopyEch.addEventListener('click', () => {
+        const text = echOutputUrl.textContent;
+        if (!text) return;
+        navigator.clipboard.writeText(text).then(() => {
+            btnCopyEch.classList.add('copied');
+            btnCopyEch.innerHTML = '<span class="copy-icon">✅</span> Copied!';
+            setTimeout(() => {
+                btnCopyEch.classList.remove('copied');
+                btnCopyEch.innerHTML = '<span class="copy-icon">📋</span> Copy';
+            }, 2000);
+        });
+    });
     enhancerInput.addEventListener('input', onEnhancerInput);
     enhancerInput.addEventListener('paste', () => setTimeout(onEnhancerInput, 50));
     enhancerClear.addEventListener('click', () => {
