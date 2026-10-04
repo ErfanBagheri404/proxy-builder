@@ -428,6 +428,22 @@
                         <label for="enhancer-fm">Final Mask (fm) — empty to skip (editable)</label>
                         <textarea id="enhancer-fm" class="setting-textarea" rows="5" spellcheck="false">{"tcp": [{"type": "fragment", "settings": {"packets": "tlshello", "lengths": ["0", "104", "1"], "delays": ["0"], "maxSplit": "0"}},{"type": "fragment", "settings": {"packets": "1-1", "lengths": ["114", "1"], "delays": ["1"], "maxSplit": "11"}}]}</textarea>
                     </div>
+                    <div class="setting-item setting-item-wide">
+                        <label for="enhancer-ech-preset">ECH Server (preset)</label>
+                        <select id="enhancer-ech-preset">
+                            <option value="none" selected>none — leave ech empty</option>
+                            <option value="cf-alidns">cloudflare-ech.com + AliDNS DoH (recommended)</option>
+                            <option value="cf-udp">cloudflare-ech.com + Cloudflare udp://1.1.1.1</option>
+                            <option value="esni-alidns">encryptedsni.com + AliDNS DoH</option>
+                            <option value="esni-udp">encryptedsni.com + udp://1.1.1.1</option>
+                            <option value="sspcc-udp">ech.sspcccdn.xyz + udp://1.1.1.1</option>
+                            <option value="ipgs-udp">ip.gs + udp://8.8.8.8</option>
+                        </select>
+                    </div>
+                    <div class="setting-item setting-item-wide">
+                        <label for="enhancer-ech">ECH Config List (ech) — empty to skip</label>
+                        <textarea id="enhancer-ech" class="setting-textarea" rows="2" spellcheck="false" placeholder="cloudflare-ech.com+https://dns.alidns.com/dns-query — or a base64 ECHConfigList"></textarea>
+                    </div>
                 </div>
             </div>
             </div>

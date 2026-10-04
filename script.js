@@ -79,6 +79,8 @@
     const enhancerCs = document.getElementById('enhancer-cs');
     const enhancerFm = document.getElementById('enhancer-fm');
     const enhancerFmPreset = document.getElementById('enhancer-fm-preset');
+    const enhancerEch = document.getElementById('enhancer-ech');
+    const enhancerEchPreset = document.getElementById('enhancer-ech-preset');
     const enhancerServer = document.getElementById('enhancer-server');
     const btnEnhance = document.getElementById('btn-enhance');
     const enhanceHint = document.getElementById('enhance-hint');
@@ -686,7 +688,7 @@
             params.set('fp', fp);
         }
 
-        // Cipher suites & fragment mask — only meaningful with TLS
+        // Cipher suites, fragment mask & ECH — only meaningful with TLS
         if (security === 'tls') {
             const cs = enhancerCs.value.trim();
             if (cs) {
@@ -695,6 +697,16 @@
             const fm = enhancerFm.value.trim();
             if (fm) {
                 params.set('fm', fm);
+            }
+            // ECH config list. Xray accepts either "domain+udp://1.1.1.1" (query
+            // the ECHConfigList over DNS from that server) or a raw base64
+            // ECHConfigList. Setting the raw value is all that is needed:
+            // URLSearchParams serializes the '+' separator as %2B, which is what
+            // Xray expects, and no literal '+' survives to be hit by the
+            // '+' -> '%20' rewrite below.
+            const ech = enhancerEch.value.trim();
+            if (ech) {
+                params.set('ech', ech);
             }
         }
 
@@ -2662,7 +2674,7 @@
     subCard.addEventListener('drop', onSubDrop);
     // Re-run the enhancement when the shared options change (selects vs textareas).
     [enhancerFp, enhancerFmPreset].forEach(el => el.addEventListener('change', scheduleSubRender));
-    [enhancerCs, enhancerFm].forEach(el => el.addEventListener('input', scheduleSubRender));
+    [enhancerCs, enhancerFm, enhancerEch].forEach(el => el.addEventListener('input', scheduleSubRender));
     btnCopySub.addEventListener('click', () => onCopySub(btnCopySub, subResults.join('\n')));
     btnDownloadSub.addEventListener('click', () => {
         if (!subResults.length) return;
@@ -2884,6 +2896,23 @@
             if (preset !== undefined) {
                 enhancerFm.value = preset;
             }
+        });
+    }
+    // ECH presets — same contract as the fragment presets: selecting one overwrites
+    // the textarea, so anything typed by hand afterwards is preserved. 'none' only
+    // clears it; it never writes a placeholder value.
+    const ECH_PRESETS = {
+        'cf-alidns': 'cloudflare-ech.com+https://dns.alidns.com/dns-query',
+        'cf-udp': 'cloudflare-ech.com+udp://1.1.1.1',
+        'esni-alidns': 'encryptedsni.com+https://dns.alidns.com/dns-query',
+        'esni-udp': 'encryptedsni.com+udp://1.1.1.1',
+        'sspcc-udp': 'ech.sspcccdn.xyz+udp://1.1.1.1',
+        'ipgs-udp': 'ip.gs+udp://8.8.8.8'
+    };
+    if (enhancerEchPreset) {
+        enhancerEchPreset.addEventListener('change', () => {
+            enhancerEch.value = ECH_PRESETS[enhancerEchPreset.value] || '';
+            scheduleSubRender();
         });
     }
     enhancerInput.addEventListener('input', onEnhancerInput);
