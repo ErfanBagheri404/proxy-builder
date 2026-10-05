@@ -960,6 +960,13 @@
     function onEchInput() {
         const val = echInput.value.trim();
         const lines = extractLines(val);
+
+        // The output box is shared with the subscription input — any edit here
+        // invalidates whatever is shown, whichever input produced it.
+        echOutputSection.style.display = 'none';
+        echOutputUrl.textContent = '';
+        echOutputRemark.textContent = '';
+        echLastSource = '';
         let parsedList = [];
         let unsupportedCount = 0;
         let invalidCount = 0;
@@ -1090,6 +1097,32 @@
         echSubParsed.appendChild(err);
     }
 
+    // Manual-fetch fallback for providers that block browser fetches (no CORS
+    // headers): an "Open link" button + 3 steps, mirroring the Subscription tab.
+    // Built with DOM APIs only (no innerHTML).
+    function setEchSubCorsGuide(linkUrl) {
+        const guide = document.createElement('div');
+        guide.className = 'sub-guide';
+        const title = document.createElement('div');
+        title.textContent = 'Get the content manually — 3 quick steps:';
+        const steps = document.createElement('ol');
+        const first = document.createElement('li');
+        first.textContent = 'Open your subscription link in a new tab: ';
+        const openBtn = document.createElement('button');
+        openBtn.type = 'button';
+        openBtn.className = 'btn-subtle';
+        openBtn.textContent = '↗ Open link';
+        openBtn.addEventListener('click', () => openSubLink(linkUrl));
+        first.appendChild(openBtn);
+        const second = document.createElement('li');
+        second.textContent = 'Select everything there and copy it (Ctrl+A, then Ctrl+C).';
+        const third = document.createElement('li');
+        third.textContent = 'Paste it into the subscription box above and press Fetch & Enhance Sub.';
+        steps.append(first, second, third);
+        guide.append(title, steps);
+        echSubParsed.appendChild(guide);
+    }
+
     function onEchSubInput() {
         const raw = echSubInput.value.trim();
         echSubCard.classList.remove('valid', 'invalid');
@@ -1116,6 +1149,11 @@
                 ? 'Ready to fetch & enhance'
                 : 'Ready to enhance pasted contents';
             echSubHint.style.color = '#4cdf86';
+        } else if (mode === 'proxy') {
+            echSubCard.classList.add('invalid');
+            btnEchSub.disabled = true;
+            echSubHint.textContent = 'That looks like an HTTP proxy address, not a subscription';
+            setEchSubError('That looks like an HTTP proxy address, not a subscription link. Only VLESS and Trojan URLs can be enhanced — paste one of those, or a subscription link. If this is actually a subscription served at a bare address with no path, open it in a new tab and paste its contents here instead.');
         } else {
             echSubCard.classList.add('invalid');
             btnEchSub.disabled = true;
@@ -1141,7 +1179,10 @@
             if (res && res.url) {
                 enhanced.push(res.url);
             } else {
-                skipped++;
+                // The line parsed but could not be enhanced (e.g. a stray
+                // base64 line whose decoded twin was already counted) — that
+                // is an unusable line, not a skipped protocol.
+                invalid++;
             }
         });
 
@@ -1231,6 +1272,7 @@
             if (echSubInput.value.trim() !== raw) {
                 echSubRaw = [];
                 onEchSubInput();
+                echSubHint.textContent = 'Input changed during the fetch — fetch again';
                 return;
             }
             echSubRaw = extractSubConfigs(body);
@@ -1241,6 +1283,7 @@
             if (echSubInput.value.trim() !== raw) {
                 echSubRaw = [];
                 onEchSubInput();
+                echSubHint.textContent = 'Input changed during the fetch — fetch again';
                 return;
             }
             echSubHint.textContent = 'Fetch failed';
@@ -1248,6 +1291,7 @@
             echSubCard.classList.remove('valid');
             echSubCard.classList.add('invalid');
             setEchSubError(subErrorText(e));
+            if (subIsBlockedError(e) && (typeof navigator === 'undefined' || navigator.onLine !== false)) setEchSubCorsGuide(raw);
         }
     }
 
