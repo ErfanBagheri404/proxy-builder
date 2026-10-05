@@ -1354,6 +1354,10 @@
         echOutputUrl.textContent = '';
         echOutputRemark.textContent = '';
         echSubRaw = [];
+        echSubHint.textContent = 'Drop failed — fix the input above and try again';
+        echSubHint.style.color = '#f05050';
+        echSubCard.classList.remove('valid');
+        echSubCard.classList.add('invalid');
     }
     function onEchSubDragOver(e) {
         e.preventDefault();
@@ -3471,6 +3475,13 @@
     btnCopyEch.addEventListener('click', () => {
         const text = echOutputUrl.textContent;
         if (!text) return;
+        // file:// / plain http have no async clipboard — fail with guidance
+        // instead of an uncaught TypeError (sync throw, .catch can't see it).
+        if (!navigator.clipboard || !navigator.clipboard.writeText) {
+            echHint.textContent = 'Copy failed — select the output text and copy it manually';
+            echHint.style.color = '#f0c040';
+            return;
+        }
         navigator.clipboard.writeText(text).then(() => {
             btnCopyEch.classList.add('copied');
             btnCopyEch.innerHTML = '<span class="copy-icon">✅</span> Copied!';
@@ -3493,6 +3504,13 @@
     btnCopyEnhancer.addEventListener('click', () => {
         const text = enhancerOutputUrl.textContent;
         if (!text) return;
+        // file:// / plain http have no async clipboard — fail with guidance
+        // instead of an uncaught TypeError (sync throw, .catch can't see it).
+        if (!navigator.clipboard || !navigator.clipboard.writeText) {
+            enhanceHint.textContent = 'Copy failed — select the output text and copy it manually';
+            enhanceHint.style.color = '#f0c040';
+            return;
+        }
         navigator.clipboard.writeText(text).then(() => {
             btnCopyEnhancer.classList.add('copied');
             btnCopyEnhancer.innerHTML = '<span class="copy-icon">✅</span> Copied!';
