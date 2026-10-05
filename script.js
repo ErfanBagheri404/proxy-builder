@@ -1273,6 +1273,7 @@
                 echSubRaw = [];
                 onEchSubInput();
                 echSubHint.textContent = 'Input changed during the fetch — fetch again';
+                echSubHint.style.color = '#f0c040';
                 return;
             }
             echSubRaw = extractSubConfigs(body);
@@ -1284,6 +1285,7 @@
                 echSubRaw = [];
                 onEchSubInput();
                 echSubHint.textContent = 'Input changed during the fetch — fetch again';
+                echSubHint.style.color = '#f0c040';
                 return;
             }
             echSubHint.textContent = 'Fetch failed';
