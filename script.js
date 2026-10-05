@@ -1349,15 +1349,14 @@
     // Accept a saved subscription file (.txt) dropped onto the ECH sub card.
     // Everything stays local: FileReader never uploads anything.
     function onEchSubDropError(text) {
-        setEchSubError(text);
         echOutputSection.style.display = 'none';
         echOutputUrl.textContent = '';
         echOutputRemark.textContent = '';
+        // Re-validate whatever is actually in the field instead of assuming
+        // the input needs fixing — the field may still hold a valid link.
+        onEchSubInput();
+        setEchSubError(text);
         echSubRaw = [];
-        echSubHint.textContent = 'Drop failed — fix the input above and try again';
-        echSubHint.style.color = '#f05050';
-        echSubCard.classList.remove('valid');
-        echSubCard.classList.add('invalid');
     }
     function onEchSubDragOver(e) {
         e.preventDefault();
@@ -2545,6 +2544,9 @@
         if (!result) return;
 
         const text = JSON.stringify(result.config, null, 2);
+        // file:// / plain http have no async clipboard — a sync throw here
+        // would bypass .then() entirely, so bail out quietly instead.
+        if (!navigator.clipboard || !navigator.clipboard.writeText) return;
         navigator.clipboard.writeText(text).then(() => {
             btn.classList.add('copied');
             btn.innerHTML = '<span class="copy-icon">✅</span> Copied!';
@@ -3195,6 +3197,13 @@
 
     function onCopySub(btn, text) {
         if (!text) return;
+        // file:// / plain http have no async clipboard — fail with guidance
+        // instead of an uncaught TypeError (sync throw, .catch can't see it).
+        if (!navigator.clipboard || !navigator.clipboard.writeText) {
+            subHint.textContent = 'Copy failed — select the output text and copy it manually';
+            subHint.style.color = '#f0c040';
+            return;
+        }
         navigator.clipboard.writeText(text).then(() => {
             btn.classList.add('copied');
             btn.innerHTML = '<span class="copy-icon">✅</span> Copied!';
