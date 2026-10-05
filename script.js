@@ -193,7 +193,12 @@
     // literal '+' which URLSearchParams decodes to a space.
     function getEchQueryServer(ech) {
         if (!ech || !ech.includes('://')) return '';
-        return ech.split(/[+\s]/)[0].trim();
+        const head = ech.split(/[+\s]/)[0].trim();
+        // A bare resolver with no domain part ("udp://1.1.1.1" or a lone
+        // "https://..." URL from a mistyped field) is not a queryable name —
+        // callers fall back to sni/server instead of emitting a URL there.
+        if (!head || head.includes('://')) return '';
+        return head;
     }
 
     // Default DNS appended to a bare ECH domain, BPB-style:
@@ -1095,9 +1100,18 @@
 
         const count = enhancedUrls.length;
         const firstParsed = firstEnhanced;
+        // Show the post-override address: read it back from the enhanced URL
+        // rather than the pre-enhance parse result.
+        let remarkHost = firstParsed ? `${firstParsed.server}:${firstParsed.port}` : '';
+        try {
+            const firstOut = new URL(enhancedUrls[0]);
+            if (firstOut.hostname) remarkHost = firstOut.host;
+        } catch {
+            // keep the pre-enhance values
+        }
         const remark = count === 1
             ? (firstParsed && firstParsed.remark
-                ? `✨ ${firstParsed.protocol.toUpperCase()} ${firstParsed.server}:${firstParsed.port} | enhanced`
+                ? `✨ ${firstParsed.protocol.toUpperCase()} ${remarkHost} | enhanced`
                 : '✨ Enhanced')
             : `✨ Enhanced ${count} URLs`;
 
