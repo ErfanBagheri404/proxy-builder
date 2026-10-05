@@ -928,9 +928,10 @@
         }
 
         const params = u.searchParams;
-        // Trojan implies TLS when the param is absent (parseTrojan defaults the
-        // same way); without this, ech would be silently skipped on such links.
-        const security = params.get('security') || (scheme === 'trojan' ? 'tls' : 'none');
+        // Missing security means plaintext ('none') — Trojan links are not
+        // always TLS (e.g. port-80 ws links with no security param), so never
+        // assume 'tls' here; that would inject ech into a plaintext config.
+        const security = params.get('security') || 'none';
 
         // Server override — auto-filled from URL, user-editable, empty keeps original.
         // opts.ignoreServer skips it for bulk input: a subscription holds many
@@ -1199,6 +1200,13 @@
         let skipped = 0;
         let invalid = 0;
         configs.forEach(line => {
+            // Raw base64 container line (no scheme): when it decodes to config
+            // lines, those twins are already separate entries below — skip it
+            // silently instead of a phantom skip/invalid report.
+            if (!SUB_SCHEME.test(line)) {
+                const decoded = safeAtob(line.replace(/^\/\/.*$/, '').trim());
+                if (decoded && extractLines(decoded).some(l => SUB_SCHEME.test(l))) return;
+            }
             const p = parseProxyURLSingle(line);
             if (!p || p.error) {
                 invalid++;
