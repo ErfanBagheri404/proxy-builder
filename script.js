@@ -114,6 +114,9 @@
     const btnEchSub = document.getElementById('btn-ech-sub');
     const echSubHint = document.getElementById('ech-sub-hint');
     const btnEchOpenSub = document.getElementById('btn-ech-open-sub');
+    const btnDownloadEch = document.getElementById('btn-download-ech');
+    const btnDownloadEchB64 = document.getElementById('btn-download-ech-b64');
+    let echOutputList = [];
     let echSubRaw = [];
     let echSubBusy = false;
     let echLastSource = '';
@@ -991,6 +994,7 @@
         echOutputUrl.textContent = '';
         echOutputRemark.textContent = '';
         echLastSource = '';
+        echOutputList = [];
         let parsedList = [];
         let unsupportedCount = 0;
         let invalidCount = 0;
@@ -1093,6 +1097,7 @@
 
         if (enhancedUrls.length === 0) {
             echOutputSection.style.display = 'none';
+            echOutputList = [];
             echHint.textContent = 'Could not enhance — check the URLs and the Server override';
             echHint.style.color = '#f05050';
             return;
@@ -1119,6 +1124,7 @@
         echOutputUrl.textContent = enhancedUrls.join('\n\n');
         echOutputSection.style.display = 'block';
         echLastSource = 'url';
+        echOutputList = enhancedUrls;
         echOutputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
@@ -1180,6 +1186,7 @@
         echOutputRemark.textContent = '';
         echSubParsed.textContent = '';
         echSubHint.style.color = '';
+        echOutputList = [];
 
         if (!raw) {
             btnEchSub.disabled = true;
@@ -1245,6 +1252,7 @@
 
         if (enhanced.length === 0) {
             echOutputSection.style.display = 'none';
+            echOutputList = [];
             echSubHint.textContent = configs.length
                 ? 'Found configs, but none were VLESS/Trojan with a usable URL'
                 : 'No proxy configs found in the input';
@@ -1268,6 +1276,7 @@
         echOutputUrl.textContent = enhanced.join('\n');
         echOutputSection.style.display = 'block';
         echLastSource = 'sub';
+        echOutputList = enhanced;
         if (focus) echOutputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
         echSubHint.textContent = 'Done';
         echSubHint.style.color = '#4cdf86';
@@ -1315,6 +1324,7 @@
         echOutputUrl.textContent = '';
         echOutputRemark.textContent = '';
         echSubRaw = [];
+        echOutputList = [];
 
         try {
             const body = await fetchSubBody(raw, onEchSubProgress);
@@ -1371,6 +1381,7 @@
         onEchSubInput();
         setEchSubError(text);
         echSubRaw = [];
+        echOutputList = [];
     }
     function onEchSubDragOver(e) {
         e.preventDefault();
@@ -3312,8 +3323,10 @@
 
 
     function switchSubTab(subTabName) {
-        const subTabs = document.querySelectorAll('.sub-tab');
-        const subPanels = document.querySelectorAll('.sub-panel');
+        // Scoped to the sing-box output: the ECH view has its own sub-tabs
+        // with a dedicated switcher below.
+        const subTabs = document.querySelectorAll('#panel-singbox .sub-tab');
+        const subPanels = document.querySelectorAll('#panel-singbox .sub-panel');
 
         subTabs.forEach(t => {
             if (t.dataset.subtab === subTabName) {
@@ -3556,6 +3569,37 @@
     btnEchOpenSub.addEventListener('click', () => {
         const raw = echSubInput.value.trim();
         if (subValidate(raw) === 'link') openSubLink(raw);
+    });
+    // ECH input-mode sub-tabs (scoped to #view-ech so the sing-box panels
+    // driven by the generic switchSubTab are untouched).
+    const echSubTabs = Array.from(document.querySelectorAll('#view-ech .sub-tab'));
+    const echSubPanels = {
+        url: document.getElementById('ech-subpanel-url'),
+        sub: document.getElementById('ech-subpanel-sub')
+    };
+    function switchEchSubTab(name) {
+        echSubTabs.forEach(t => t.classList.toggle('active', t.dataset.echsubtab === name));
+        Object.entries(echSubPanels).forEach(([key, panel]) => {
+            if (panel) panel.classList.toggle('active', key === name);
+        });
+    }
+    echSubTabs.forEach(tab => {
+        tab.addEventListener('click', () => switchEchSubTab(tab.dataset.echsubtab));
+    });
+    btnDownloadEch.addEventListener('click', () => {
+        if (!echOutputList.length) return;
+        downloadText('ech-enhanced-configs.txt', echOutputList.join('\n') + '\n');
+    });
+    btnDownloadEchB64.addEventListener('click', () => {
+        if (!echOutputList.length) return;
+        // Standard subscription body: UTF-8 bytes -> base64, no line breaks.
+        // Chunked because a spread over a few hundred KB overflows the arg limit.
+        const bytes = new TextEncoder().encode(echOutputList.join('\n'));
+        let bin = '';
+        for (let i = 0; i < bytes.length; i += 0x8000) {
+            bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+        }
+        downloadText('ech-enhanced-configs-base64.txt', btoa(bin));
     });
     echSubCard.addEventListener('dragenter', onEchSubDragOver);
     echSubCard.addEventListener('dragover', onEchSubDragOver);

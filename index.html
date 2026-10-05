@@ -369,6 +369,18 @@
 
         <!-- ===== View: ECH Enhancer (default) ===== -->
         <div id="view-ech">
+            <!-- ECH input mode tabs -->
+            <div class="sub-tabs">
+                <button class="sub-tab active" data-echsubtab="url">
+                    🔗 URL
+                </button>
+                <button class="sub-tab" data-echsubtab="sub">
+                    📥 Subscription
+                </button>
+            </div>
+
+            <!-- Sub Panel: URL input -->
+            <div class="sub-panel active" id="ech-subpanel-url">
             <!-- Input -->
             <div class="config-card" id="ech-card">
                 <div class="card-header">
@@ -392,24 +404,14 @@
                 <div class="parsed-info" id="ech-parsed"></div>
             </div>
 
-            <!-- Subscription input (same box decodes plain/base64, link or contents) -->
-            <div class="config-card" id="ech-sub-card">
-                <div class="card-header">
-                    <div class="card-title">
-                        <span class="card-icon">📥</span>
-                        <div>
-                            <h2>Subscription Input</h2>
-                            <p class="card-hint">Paste a subscription link — or its contents — to batch-enhance every VLESS / Trojan config inside with the ECH options below. You can also drop a saved .txt file onto this card.</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="input-group">
-                    <textarea id="ech-sub-input" class="config-input sub-url-input" rows="2"
-                        placeholder="https://example.com/sub/your-token — or paste the subscription contents"
-                        spellcheck="false" autocomplete="off"></textarea>
-                    <button class="btn-clear" id="ech-sub-clear" title="Clear">✕</button>
-                </div>
-                <div class="parsed-info" id="ech-sub-parsed"></div>
+            <!-- Generate -->
+            <div class="generate-section">
+                <button class="btn-generate" id="btn-ech-enhance" disabled>
+                    <span class="btn-icon">✨</span>
+                    Enhance URL
+                </button>
+                <p class="generate-hint" id="ech-hint">Paste VLESS or Trojan URL(s) above to enable</p>
+            </div>
             </div>
 
             <!-- Options (own card — not shared with other tabs) -->
@@ -453,13 +455,26 @@
             </div>
             </div>
 
-            <!-- Generate -->
-            <div class="generate-section">
-                <button class="btn-generate" id="btn-ech-enhance" disabled>
-                    <span class="btn-icon">✨</span>
-                    Enhance URL
-                </button>
-                <p class="generate-hint" id="ech-hint">Paste VLESS or Trojan URL(s) above to enable</p>
+            <!-- Sub Panel: Subscription input -->
+            <div class="sub-panel" id="ech-subpanel-sub">
+            <!-- Subscription input (same box decodes plain/base64, link or contents) -->
+            <div class="config-card" id="ech-sub-card">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span class="card-icon">📥</span>
+                        <div>
+                            <h2>Subscription Input</h2>
+                            <p class="card-hint">Paste a subscription link — or its contents — to batch-enhance every VLESS / Trojan config inside with the ECH options below. You can also drop a saved .txt file onto this card.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="input-group">
+                    <textarea id="ech-sub-input" class="config-input sub-url-input" rows="2"
+                        placeholder="https://example.com/sub/your-token — or paste the subscription contents"
+                        spellcheck="false" autocomplete="off"></textarea>
+                    <button class="btn-clear" id="ech-sub-clear" title="Clear">✕</button>
+                </div>
+                <div class="parsed-info" id="ech-sub-parsed"></div>
             </div>
 
             <!-- Generate (subscription) -->
@@ -473,6 +488,7 @@
                 </button>
                 <p class="generate-hint" id="ech-sub-hint">Paste a subscription link — or its contents — above to enable</p>
             </div>
+            </div>
 
             <!-- Output -->
             <div class="output-section" id="ech-output-section" style="display:none;">
@@ -481,6 +497,13 @@
                     <div class="output-actions">
                         <button class="btn-copy" id="btn-copy-ech" title="Copy to clipboard">
                             <span class="copy-icon">📋</span> Copy
+                        </button>
+                        <button class="btn-download" id="btn-download-ech" title="Download as .txt (one config per line)">
+                            <span class="download-icon">💾</span> .txt
+                        </button>
+                        <button class="btn-download" id="btn-download-ech-b64"
+                            title="Download as base64 .txt (subscription format)">
+                            <span class="download-icon">🔐</span> base64 .txt
                         </button>
                     </div>
                 </div>
@@ -506,6 +529,8 @@
                             or paste its contents (plain or base64) to batch-enhance every VLESS / Trojan config inside
                             with the same ECH options above. The server override is ignored here — each config keeps its
                             own address.</li>
+                        <li><strong>Output</strong> — <strong>Copy</strong> to clipboard, <strong>.txt</strong> download
+                            (one config per line), or <strong>base64 .txt</strong> download (standard subscription body).</li>
                     </ul>
                     <p><code>ech</code> is only added when the config uses <strong>tls</strong> security. Clear the field to skip it.</p>
                     <p><strong>⚠️ TLS required:</strong> this tool only works with configs that have <strong>TLS</strong>

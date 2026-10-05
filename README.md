@@ -22,6 +22,7 @@ All processing happens in your browser. No data is sent to any server — fetchi
 - **Bare domains**: Typing just a domain (e.g. `cloudflare-ech.com`) auto-adds `+udp://8.8.8.8`; a base64 ECHConfigList passes through untouched.
 - **TLS-aware**: `ech` is only added when the config uses `tls` security. Clear the field to skip it.
 - **One-click Copy**: Copy the enhanced URL straight to the clipboard.
+- **Export**: Download as `.txt` (one per line) or base64 `.txt` (standard subscription body).
 - **Protocol Support**: **VLESS** and **Trojan**.
 
 ### 🧬 Fragment + Fingerprint
