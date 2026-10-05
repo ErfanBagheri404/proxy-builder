@@ -3388,8 +3388,10 @@
     });
     tabSingbox.addEventListener('click', () => switchTab('singbox'));
 
-    // Sub-tab switching
-    document.querySelectorAll('.sub-tab').forEach(btn => {
+    // Sub-tab switching (sing-box output only — the ECH view has its own
+    // switcher; binding these globally would strip sing-box panels when an
+    // ECH sub-tab, which carries data-echsubtab instead, is clicked).
+    document.querySelectorAll('#panel-singbox .sub-tab').forEach(btn => {
         btn.addEventListener('click', () => {
             switchSubTab(btn.dataset.subtab);
         });
@@ -3586,15 +3588,17 @@
     echSubTabs.forEach(tab => {
         tab.addEventListener('click', () => switchEchSubTab(tab.dataset.echsubtab));
     });
+    // Downloads export exactly what is displayed, so Copy and both files
+    // always agree (URL mode shows blank-line separation, sub mode single).
     btnDownloadEch.addEventListener('click', () => {
         if (!echOutputList.length) return;
-        downloadText('ech-enhanced-configs.txt', echOutputList.join('\n') + '\n');
+        downloadText('ech-enhanced-configs.txt', echOutputUrl.textContent + '\n');
     });
     btnDownloadEchB64.addEventListener('click', () => {
         if (!echOutputList.length) return;
         // Standard subscription body: UTF-8 bytes -> base64, no line breaks.
         // Chunked because a spread over a few hundred KB overflows the arg limit.
-        const bytes = new TextEncoder().encode(echOutputList.join('\n'));
+        const bytes = new TextEncoder().encode(echOutputUrl.textContent);
         let bin = '';
         for (let i = 0; i < bytes.length; i += 0x8000) {
             bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
