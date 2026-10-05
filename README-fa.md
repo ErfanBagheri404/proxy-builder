@@ -155,7 +155,7 @@
     <tr>
       <td><b>VLESS</b></td>
       <td dir="ltr" align="left"><code>vless://uuid@server:port?params</code></td>
-      <td>پشتیبانی در هر سه ابزار</td>
+      <td>پشتیبانی در هر چهار ابزار</td>
     </tr>
     <tr>
       <td><b>VMess</b></td>
@@ -165,7 +165,7 @@
     <tr>
       <td><b>Trojan</b></td>
       <td dir="ltr" align="left"><code>trojan://password@server:port?params</code></td>
-      <td>پشتیبانی در هر سه ابزار</td>
+      <td>پشتیبانی در هر چهار ابزار</td>
     </tr>
     <tr>
       <td><b>Shadowsocks</b></td>

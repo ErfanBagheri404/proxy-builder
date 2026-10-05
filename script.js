@@ -1088,6 +1088,8 @@
 
         if (enhancedUrls.length === 0) {
             echOutputSection.style.display = 'none';
+            echHint.textContent = 'Could not enhance — check the URLs and the Server override';
+            echHint.style.color = '#f05050';
             return;
         }
 
@@ -1342,6 +1344,45 @@
             syncEchOpenButton();
             if (subIsBlockedError(e) && (typeof navigator === 'undefined' || navigator.onLine !== false)) setEchSubCorsGuide(raw);
         }
+    }
+
+    // Accept a saved subscription file (.txt) dropped onto the ECH sub card.
+    // Everything stays local: FileReader never uploads anything.
+    function onEchSubDropError(text) {
+        setEchSubError(text);
+        echOutputSection.style.display = 'none';
+        echOutputUrl.textContent = '';
+        echOutputRemark.textContent = '';
+        echSubRaw = [];
+    }
+    function onEchSubDragOver(e) {
+        e.preventDefault();
+        echSubCard.classList.add('dragover');
+    }
+    function onEchSubDragLeave(e) {
+        e.preventDefault();
+        // dragleave also fires when moving between children of the card —
+        // only clear the highlight when the pointer truly leaves it.
+        if (e.relatedTarget && echSubCard.contains(e.relatedTarget)) return;
+        echSubCard.classList.remove('dragover');
+    }
+    function onEchSubDrop(e) {
+        e.preventDefault();
+        echSubCard.classList.remove('dragover');
+        const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (!file) return;
+        if (file.size > SUB_MAX_FILE_BYTES) {
+            onEchSubDropError('That file is too large — drop a plain-text subscription file (.txt), usually a few hundred KB at most.');
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            echSubInput.value = String(reader.result || '');
+            onEchSubInput();
+            echSubInput.focus();
+        };
+        reader.onerror = () => onEchSubDropError('Could not read that file.');
+        reader.readAsText(file);
     }
 
     // ===== Xray Outbound Builders =====
@@ -3437,6 +3478,9 @@
                 btnCopyEch.classList.remove('copied');
                 btnCopyEch.innerHTML = '<span class="copy-icon">📋</span> Copy';
             }, 2000);
+        }).catch(() => {
+            echHint.textContent = 'Copy failed — select the output text and copy it manually';
+            echHint.style.color = '#f0c040';
         });
     });
     enhancerInput.addEventListener('input', onEnhancerInput);
@@ -3456,6 +3500,9 @@
                 btnCopyEnhancer.classList.remove('copied');
                 btnCopyEnhancer.innerHTML = '<span class="copy-icon">📋</span> Copy';
             }, 2000);
+        }).catch(() => {
+            enhanceHint.textContent = 'Copy failed — select the output text and copy it manually';
+            enhanceHint.style.color = '#f0c040';
         });
     });
     echSubInput.addEventListener('input', onEchSubInput);
@@ -3469,6 +3516,10 @@
         const raw = echSubInput.value.trim();
         if (subValidate(raw) === 'link') openSubLink(raw);
     });
+    echSubCard.addEventListener('dragenter', onEchSubDragOver);
+    echSubCard.addEventListener('dragover', onEchSubDragOver);
+    echSubCard.addEventListener('dragleave', onEchSubDragLeave);
+    echSubCard.addEventListener('drop', onEchSubDrop);
     // Re-run stored subscription configs when the ECH options change.
     // (Server is ignored for bulk input, so it is not watched.)
     [echFp, echPreset].forEach(el => el.addEventListener('change', scheduleEchSubRender));

@@ -104,9 +104,9 @@ This ensures that your final outgoing IP address is that of the **Chain Proxy**,
 
 | Protocol | URL Format | Notes |
 |----------|-----------|-------|
-| **VLESS** | `vless://uuid@server:port?params` | Supported by all three tools |
+| **VLESS** | `vless://uuid@server:port?params` | Supported by all four tools |
 | **VMess** | `vmess://base64-json` | Chain Builder only |
-| **Trojan** | `trojan://password@server:port?params` | Supported by all three tools |
+| **Trojan** | `trojan://password@server:port?params` | Supported by all four tools |
 | **Shadowsocks** | `ss://base64(method:pass)@server:port` | Chain Builder only — no transport (ws, grpc, etc.) and no TLS support |
 | **SOCKS** | `socks://user:pass@server:port` | Chain Builder only — must include username and password |
 | **HTTP** | `http://user:pass@server:port` | Chain Builder only — must include username and password |
