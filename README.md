@@ -15,6 +15,7 @@ All processing happens in your browser. No data is sent to any server — fetchi
 
 ### 🛡️ ECH
 - **Paste & Enhance**: Paste single or multiple `vless://` or `trojan://` URLs (one per line) and get enhanced links with `fp` and `ech` parameters added.
+- **Subscription Input**: Paste a subscription link to fetch it in your browser — or paste its contents (plain or base64) — to batch-enhance every VLESS/Trojan config inside with the same ECH options. The server override is ignored here (each config keeps its own address); changing the ECH options re-enhances the fetched configs without re-fetching.
 - **Server Override**: The server (IP/domain) field is auto-filled from the URL for a single config and is user-editable. With multiple configs the field stays empty and only applies to all configs if you type a custom value (supports IPv4, IPv6 and domains).
 - **Fingerprint**: Default `chrome`, with `unsafe`, `firefox`, `safari`, `random` and `none` options.
 - **ECH presets**: The `ECH Server` selector ships prefilled with `cloudflare-ech.com + Cloudflare udp://1.1.1.1`; alternatives include AliDNS DoH and other public ECH servers. The field stays editable for manual tweaks.
@@ -73,6 +74,7 @@ This ensures that your final outgoing IP address is that of the **Chain Proxy**,
 2. Paste your **VLESS** or **Trojan** URL.
 3. Adjust the options if needed: server override (auto-filled from the URL), fingerprint (default `chrome`), ECH server preset or a manual value (bare domain auto-adds `+udp://8.8.8.8`).
 4. Click **"Enhance URL"** and copy the resulting link — import it into your client (Xray core, Sing-box 1.13.0+, or Clash 1.19.20+).
+5. For bulk configs, use the **Subscription Input** card instead: paste a link and click **"Fetch & Enhance Sub"** — or paste the subscription contents directly.
 
 ### 🧬 Fragment + Fingerprint
 1. Switch to the **Fragment + Fingerprint** tab.

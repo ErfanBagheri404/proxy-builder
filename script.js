@@ -106,6 +106,17 @@
     const btnCopyEch = document.getElementById('btn-copy-ech');
     const echCard = document.getElementById('ech-card');
 
+    // ECH subscription input (paste contents or fetch a link — shared output)
+    const echSubCard = document.getElementById('ech-sub-card');
+    const echSubInput = document.getElementById('ech-sub-input');
+    const echSubClear = document.getElementById('ech-sub-clear');
+    const echSubParsed = document.getElementById('ech-sub-parsed');
+    const btnEchSub = document.getElementById('btn-ech-sub');
+    const echSubHint = document.getElementById('ech-sub-hint');
+    let echSubRaw = [];
+    let echSubBusy = false;
+    let echLastSource = '';
+
     let parsedConfig1 = null;
     let parsedConfig2 = null;
     let sshMode1 = false;
@@ -883,7 +894,7 @@
 
     // ===== ECH Enhancer (own tab — fp + ech only) =====
 
-    function enhanceEchURL(raw) {
+    function enhanceEchURL(raw, opts) {
         const url = raw.trim();
         if (!url) return { error: 'No URL provided' };
         // Case-insensitive on purpose — parseProxyURLSingle() accepts VLESS://
@@ -904,7 +915,9 @@
         const security = params.get('security') || 'none';
 
         // Server override — auto-filled from URL, user-editable, empty keeps original.
-        const server = echServer.value.trim();
+        // opts.ignoreServer skips it for bulk input: a subscription holds many
+        // servers, so rewriting every entry to one address would break the list.
+        const server = (opts && opts.ignoreServer) ? '' : echServer.value.trim();
         if (server) {
             const host = server.includes(':') && !server.startsWith('[')
                 ? '[' + server + ']'
@@ -1063,7 +1076,179 @@
         echOutputRemark.textContent = remark;
         echOutputUrl.textContent = enhancedUrls.join('\n\n');
         echOutputSection.style.display = 'block';
+        echLastSource = 'url';
         echOutputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // ===== ECH subscription input (link fetch or pasted contents, shared output) =====
+
+    function setEchSubError(text) {
+        echSubParsed.textContent = '';
+        const err = document.createElement('div');
+        err.className = 'error-msg';
+        err.textContent = '⚠️ ' + text;
+        echSubParsed.appendChild(err);
+    }
+
+    function onEchSubInput() {
+        const raw = echSubInput.value.trim();
+        echSubCard.classList.remove('valid', 'invalid');
+        echSubRaw = [];
+
+        // Any edit invalidates the previous result, whichever input produced it.
+        echOutputSection.style.display = 'none';
+        echOutputUrl.textContent = '';
+        echOutputRemark.textContent = '';
+        echSubParsed.textContent = '';
+        echSubHint.style.color = '';
+
+        if (!raw) {
+            btnEchSub.disabled = true;
+            echSubHint.textContent = 'Paste a subscription link — or its contents — above to enable';
+            return;
+        }
+
+        const mode = subValidate(raw);
+        if (mode === 'link' || mode === 'content') {
+            echSubCard.classList.add('valid');
+            btnEchSub.disabled = false;
+            echSubHint.textContent = mode === 'link'
+                ? 'Ready to fetch & enhance'
+                : 'Ready to enhance pasted contents';
+            echSubHint.style.color = '#4cdf86';
+        } else {
+            echSubCard.classList.add('invalid');
+            btnEchSub.disabled = true;
+            echSubHint.textContent = 'Unrecognized input — paste a subscription link or its contents';
+        }
+    }
+
+    function renderEchSubResults(configs, focus) {
+        let enhanced = [];
+        let skipped = 0;
+        let invalid = 0;
+        configs.forEach(line => {
+            const p = parseProxyURLSingle(line);
+            if (!p || p.error) {
+                invalid++;
+                return;
+            }
+            if (p.protocol !== 'vless' && p.protocol !== 'trojan') {
+                skipped++;
+                return;
+            }
+            const res = enhanceEchURL(line, { ignoreServer: true });
+            if (res && res.url) {
+                enhanced.push(res.url);
+            } else {
+                skipped++;
+            }
+        });
+
+        if (enhanced.length === 0) {
+            echOutputSection.style.display = 'none';
+            echSubHint.textContent = configs.length
+                ? 'Found configs, but none were VLESS/Trojan with a usable URL'
+                : 'No proxy configs found in the input';
+            echSubHint.style.color = '#f0c040';
+            echSubCard.classList.remove('valid');
+            echSubCard.classList.add('invalid');
+            setEchSubError(configs.length
+                ? configs.length + ' config(s) found, but none could be enhanced — only VLESS and Trojan URLs are supported.'
+                : 'No recognizable VLESS/Trojan configs in the input. Open the link in a new tab and paste its contents here.');
+            return;
+        }
+
+        echSubParsed.textContent = '';
+        echSubCard.classList.remove('invalid');
+        echSubCard.classList.add('valid');
+
+        const parts = ['✨ ' + enhanced.length + ' enhanced config(s)'];
+        if (skipped) parts.push('skipped ' + skipped + ' non-VLESS/Trojan');
+        if (invalid) parts.push('ignored ' + invalid + ' unparseable line(s)');
+        echOutputRemark.textContent = parts.join(' · ');
+        echOutputUrl.textContent = enhanced.join('\n');
+        echOutputSection.style.display = 'block';
+        echLastSource = 'sub';
+        if (focus) echOutputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        echSubHint.textContent = 'Done';
+        echSubHint.style.color = '#4cdf86';
+    }
+
+    // Re-enhance stored subscription configs when the ECH options change,
+    // without re-fetching. Only fires when the visible output came from the
+    // subscription input — never clobbers URL-input results.
+    let echSubRenderTimer = null;
+    function scheduleEchSubRender() {
+        if (echSubBusy || !echSubRaw.length || echLastSource !== 'sub') return;
+        clearTimeout(echSubRenderTimer);
+        echSubRenderTimer = setTimeout(() => {
+            echSubRenderTimer = null;
+            if (echSubBusy || !echSubRaw.length || echLastSource !== 'sub') return;
+            renderEchSubResults(echSubRaw, false);
+        }, 300);
+    }
+
+    async function onEchSub() {
+        const raw = echSubInput.value.trim();
+        if (!raw || echSubBusy) return;
+
+        const mode = subValidate(raw);
+        if (mode !== 'link' && mode !== 'content') {
+            onEchSubInput();
+            return;
+        }
+
+        // Pasted content: no fetch at all.
+        if (mode === 'content') {
+            echSubRaw = extractSubConfigs(raw);
+            renderEchSubResults(echSubRaw, true);
+            return;
+        }
+
+        echSubBusy = true;
+        btnEchSub.disabled = true;
+        echSubHint.textContent = 'Fetching…';
+        echSubHint.style.color = '';
+        echSubParsed.textContent = '';
+        echSubCard.classList.remove('invalid');
+        echOutputSection.style.display = 'none';
+        echOutputUrl.textContent = '';
+        echOutputRemark.textContent = '';
+        echSubRaw = [];
+
+        try {
+            const body = await fetchSubBody(raw, (loaded, total) => {
+                const kb = Math.round(loaded / 1024);
+                echSubHint.textContent = total
+                    ? 'Fetching… ' + kb + ' / ' + Math.round(total / 1024) + ' KB'
+                    : 'Fetching… ' + kb + ' KB';
+            });
+            echSubBusy = false;
+            btnEchSub.disabled = false;
+            // The field changed mid-fetch — drop the result, never render output
+            // under input it no longer belongs to.
+            if (echSubInput.value.trim() !== raw) {
+                echSubRaw = [];
+                onEchSubInput();
+                return;
+            }
+            echSubRaw = extractSubConfigs(body);
+            renderEchSubResults(echSubRaw, true);
+        } catch (e) {
+            echSubBusy = false;
+            btnEchSub.disabled = false;
+            if (echSubInput.value.trim() !== raw) {
+                echSubRaw = [];
+                onEchSubInput();
+                return;
+            }
+            echSubHint.textContent = 'Fetch failed';
+            echSubHint.style.color = '#f05050';
+            echSubCard.classList.remove('valid');
+            echSubCard.classList.add('invalid');
+            setEchSubError(subErrorText(e));
+        }
     }
 
     // ===== Xray Outbound Builders =====
@@ -3180,4 +3365,15 @@
             }, 2000);
         });
     });
+    echSubInput.addEventListener('input', onEchSubInput);
+    echSubInput.addEventListener('paste', () => setTimeout(onEchSubInput, 50));
+    echSubClear.addEventListener('click', () => {
+        echSubInput.value = '';
+        onEchSubInput();
+    });
+    btnEchSub.addEventListener('click', onEchSub);
+    // Re-run stored subscription configs when the ECH options change.
+    // (Server is ignored for bulk input, so it is not watched.)
+    [echFp, echPreset].forEach(el => el.addEventListener('change', scheduleEchSubRender));
+    [echText].forEach(el => el.addEventListener('input', scheduleEchSubRender));
 })();

@@ -392,6 +392,26 @@
                 <div class="parsed-info" id="ech-parsed"></div>
             </div>
 
+            <!-- Subscription input (same box decodes plain/base64, link or contents) -->
+            <div class="config-card" id="ech-sub-card">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span class="card-icon">📥</span>
+                        <div>
+                            <h2>Subscription Input</h2>
+                            <p class="card-hint">Paste a subscription link — or its contents — to batch-enhance every VLESS / Trojan config inside with the ECH options below.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="input-group">
+                    <textarea id="ech-sub-input" class="config-input sub-url-input" rows="2"
+                        placeholder="https://example.com/sub/your-token — or paste the subscription contents"
+                        spellcheck="false" autocomplete="off"></textarea>
+                    <button class="btn-clear" id="ech-sub-clear" title="Clear">✕</button>
+                </div>
+                <div class="parsed-info" id="ech-sub-parsed"></div>
+            </div>
+
             <!-- Options (own card — not shared with other tabs) -->
             <div id="ech-options-slot">
                 <div class="settings-card" id="ech-options-card">
@@ -442,6 +462,14 @@
                 <p class="generate-hint" id="ech-hint">Paste VLESS or Trojan URL(s) above to enable</p>
             </div>
 
+            <!-- Generate (subscription) -->
+            <div class="generate-section">
+                <button class="btn-generate" id="btn-ech-sub" disabled>
+                    <span class="btn-icon">⚡</span> Fetch &amp; Enhance Sub
+                </button>
+                <p class="generate-hint" id="ech-sub-hint">Paste a subscription link — or its contents — above to enable</p>
+            </div>
+
             <!-- Output -->
             <div class="output-section" id="ech-output-section" style="display:none;">
                 <div class="output-header">
@@ -470,6 +498,10 @@
                             <code>+udp://8.8.8.8</code>; a base64 ECHConfigList is passed through untouched.</li>
                         <li><strong>Server</strong> — IP/domain override, auto-filled from the pasted URL; empty to keep
                             the original address.</li>
+                        <li><strong>Subscription Input</strong> — paste a subscription link to fetch it in your browser,
+                            or paste its contents (plain or base64) to batch-enhance every VLESS / Trojan config inside
+                            with the same ECH options above. The server override is ignored here — each config keeps its
+                            own address.</li>
                     </ul>
                     <p><code>ech</code> is only added when the config uses <strong>tls</strong> security. Clear the field to skip it.</p>
                     <p><strong>⚠️ TLS required:</strong> this tool only works with configs that have <strong>TLS</strong>
